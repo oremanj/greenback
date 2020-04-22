@@ -1,0 +1,14 @@
+# Testing
+pytest
+pytest-cov
+pytest-trio
+
+# Tools
+black == 19.10b0; implementation_name == "cpython"
+#mypy >= 0.750; implementation_name == "cpython"
+flake8
+
+# typed-ast is required by black + mypy and doesn't build on PyPy;
+# it will be unconstrained in requirements.txt if we don't
+# constrain it here
+typed-ast; implementation_name == "cpython"

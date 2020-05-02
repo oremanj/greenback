@@ -41,7 +41,12 @@ class async_context(Generic[T]):
         self._cm = cm
 
     def __enter__(self) -> T:
-        self._aexit = type(self._cm).__aexit__
+        try:
+            self._aexit = type(self._cm).__aexit__
+        except AttributeError:
+            raise AttributeError(
+                f"type object {type(self.cm).__name__!r} has no attribute '__aexit__'"
+            ) from None
         aenter = type(self._cm).__aenter__
         return await_(aenter(self._cm))
 
@@ -63,7 +68,7 @@ class async_iter(Generic[T]):
             raise TypeError(
                 "'async_iter' requires an object with __aiter__ method, got "
                 + type(iterable).__name__
-            )
+            ) from None
         self._it = aiter(iterable)
         try:
             type(self._it).__anext__
@@ -71,7 +76,7 @@ class async_iter(Generic[T]):
             raise TypeError(
                 "'async_iter' received an object from __aiter__ that does not "
                 "implement __anext__: " + type(self._it).__name__
-            )
+            ) from None
 
     def __iter__(self) -> Iterator[T]:
         return self

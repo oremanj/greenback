@@ -61,9 +61,9 @@ async def test_async_context():
                 res = f"got {resobj!r}"
             except BaseException as ex:
                 if resobj == "<failed>":
-                    res = f"failed in enter: {ex!r}"
+                    res = f"failed in enter: {type(ex)!r}"
                 else:
-                    res = f"got {resobj!r} then failed in exit: {ex!r}"
+                    res = f"got {resobj!r} then failed in exit: {type(ex)!r}"
             return res
 
         @asynccontextmanager
@@ -121,7 +121,7 @@ async def test_async_iter():
                     results.append(val)
             except BaseException as ex:
                 print(repr(ex))
-                results.append(f"exception: {ex!r}")
+                results.append(f"exception: {type(ex)!r}")
             return results
 
         async def greenbacked_template():
@@ -131,7 +131,7 @@ async def test_async_iter():
         res_native = await summarize_in(async_iterable_factory)
         res_gb = await summarize_in(greenbacked_template)
 
-        assert repr(res_native).replace("async for", "async_iter") == repr(res_gb)
+        assert res_native == res_gb
 
     async def arange(end=10):
         for val in range(end):

@@ -100,7 +100,10 @@ def current_task() -> Union["trio.hazmat.Task", "asyncio.Task[Any]"]:
     elif library == "asyncio":
         import asyncio
 
-        task = asyncio.current_task()
+        if sys.version_info >= (3, 7):
+            task = asyncio.current_task()
+        else:
+            task = asyncio.Task.current_task()
         if task is None:  # pragma: no cover
             # typeshed says this is possible, but I haven't been able to induce it
             raise RuntimeError("No asyncio task is running")

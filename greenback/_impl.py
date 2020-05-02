@@ -145,10 +145,10 @@ def set_aio_task_coro(
         # Deduce the offset by scanning the task object representation
         # for id(task._coro)
         size = task.__sizeof__()
-        arraytype = ctypes.c_ulong * (size // ctypes.sizeof(ctypes.c_ulong))
+        arraytype = ctypes.c_size_t * (size // ctypes.sizeof(ctypes.c_size_t))
         for idx, value in enumerate(arraytype.from_address(id(task))):
             if value == id(old_coro):
-                aio_task_coro_c_offset = idx * ctypes.sizeof(ctypes.c_ulong)
+                aio_task_coro_c_offset = idx * ctypes.sizeof(ctypes.c_size_t)
                 break
         else:  # pragma: no cover
             raise RuntimeError("Couldn't determine C offset of asyncio.Task._coro")
@@ -161,7 +161,7 @@ def set_aio_task_coro(
     # APIs it is!
     import _ctypes  # type: ignore
 
-    coro_field = ctypes.c_ulong.from_address(id(task) + aio_task_coro_c_offset)
+    coro_field = ctypes.c_size_t.from_address(id(task) + aio_task_coro_c_offset)
     assert coro_field.value == id(old_coro)
     _ctypes.Py_INCREF(new_coro)
     coro_field.value = id(new_coro)

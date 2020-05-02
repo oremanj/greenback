@@ -119,6 +119,8 @@ python -m pip --version
 python setup.py sdist --formats=zip
 python -m pip install dist/*.zip
 
+pypy_tag=$(python -c "import sys; print('pypy' if sys.implementation.name == 'pypy' else '')")
+
 if [ "$CHECK_DOCS" = "1" ]; then
     python -m pip install -r docs-requirements.txt
     towncrier --yes  # catch errors in newsfragments
@@ -138,7 +140,7 @@ else
 
     INSTALLDIR=$(python -c "import os, greenback; print(os.path.dirname(greenback.__file__))")
     cp ../setup.cfg $INSTALLDIR
-    if pytest -W error -ra --junitxml=../test-results.xml ${INSTALLDIR} --cov="$INSTALLDIR" --cov-config=../.coveragerc --verbose; then
+    if pytest -W error -ra --junitxml=../test-results.xml ${INSTALLDIR} --cov="$INSTALLDIR" --cov-config=../.coveragerc$pypy_tag --verbose; then
         PASSED=true
     else
         PASSED=false

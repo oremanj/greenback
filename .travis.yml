@@ -10,7 +10,9 @@ matrix:
     - python: 3.6-dev
     - python: 3.7-dev
     - python: 3.8-dev
-    - python: nightly
+    # Disabling nightly until greenlet makes a release that includes
+    # https://github.com/python-greenlet/greenlet/pull/161
+    #- python: nightly
 
 script:
   - ./ci.sh

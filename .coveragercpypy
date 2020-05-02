@@ -1,0 +1,12 @@
+# pypy doesn't support concurrency=greenlet so we use this alternate
+# .coveragerc that doesn't ask for it.
+[run]
+branch=True
+source=greenback
+
+[report]
+precision = 1
+exclude_lines =
+  pragma: no cover
+  abc.abstractmethod
+  if TYPE_CHECKING:

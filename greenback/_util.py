@@ -45,7 +45,7 @@ class async_context(Generic[T]):
             self._aexit = type(self._cm).__aexit__
         except AttributeError:
             raise AttributeError(
-                f"type object {type(self.cm).__name__!r} has no attribute '__aexit__'"
+                f"type object {type(self._cm).__name__!r} has no attribute '__aexit__'"
             ) from None
         aenter = type(self._cm).__aenter__
         return await_(aenter(self._cm))

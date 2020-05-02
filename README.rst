@@ -1,5 +1,5 @@
-greenback: reenter an async event loop from synchronous code
-============================================================
+greenback: reenter an asyncio or Trio event loop from synchronous code
+======================================================================
 
 .. image:: https://img.shields.io/pypi/v/greenback.svg
    :target: https://pypi.org/project/greenback
@@ -63,7 +63,7 @@ Quickstart
 * Call ``await greenback.ensure_portal()`` at least once in each task that will be
   using ``greenback``. (Additional calls in the same task do nothing.) You can think
   of this as creating a portal that will be used by future calls to
-  ``greenback.run()`` in the same task.
+  ``greenback.await_()`` in the same task.
 
 * Later, use ``greenback.await_(foo())`` as a replacement for
   ``await foo()`` in places where you can't write ``await``.

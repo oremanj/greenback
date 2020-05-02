@@ -70,8 +70,8 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'greenback'
-copyright = 'The greenback authors'
-author = 'The greenback authors'
+copyright = 'Joshua Oreman'
+author = 'Joshua Oreman'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the

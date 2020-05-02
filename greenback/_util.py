@@ -77,6 +77,8 @@ class async_iter(Generic[T]):
                 "'async_iter' received an object from __aiter__ that does not "
                 "implement __anext__: " + type(self._it).__name__
             ) from None
+        if all(hasattr(self._it, meth) for meth in ("asend", "athrow", "aclose")):
+            self.__class__ = async_generator
 
     def __iter__(self) -> Iterator[T]:
         return self
@@ -86,6 +88,10 @@ class async_iter(Generic[T]):
             return await_(type(self._it).__anext__(self._it))
         except StopAsyncIteration as ex:
             raise StopIteration(*ex.args)
+
+
+class async_generator(async_iter[T]):
+    __slots__ = ()
 
     def send(self, val: Any) -> T:
         try:

@@ -4,20 +4,23 @@ import re
 import types
 
 import anyio
-import pytest
-import sniffio
+import pytest  # type: ignore
+import sniffio  # type: ignore
 import trio
 import trio.testing
 
 import greenback
-from greenback import ensure_portal, await_
+from .._impl import ensure_portal, await_
+
 
 async def test_simple(library):
     ticks = 0
 
     async def one_task(*, have_portal=False):
         if not have_portal:
-            with pytest.raises(RuntimeError, match="you must 'await greenback.ensure_portal"):
+            with pytest.raises(
+                RuntimeError, match="you must 'await greenback.ensure_portal"
+            ):
                 await_(anyio.sleep(0))
             await ensure_portal()
             await ensure_portal()
@@ -35,6 +38,7 @@ async def test_simple(library):
         await one_task(have_portal=True)
 
     assert ticks == 400
+
 
 async def test_complex(library):
     server = await anyio.create_tcp_server()
@@ -58,6 +62,7 @@ async def test_complex(library):
         assert b"hello" == await_(conn.receive_some(1024))
         await_(tg.cancel_scope.cancel())
 
+
 def test_misuse():
     with pytest.raises(sniffio.AsyncLibraryNotFoundError):
         greenback.await_(42)
@@ -74,9 +79,11 @@ def test_misuse():
         with pytest.raises(TypeError, match="int can't be used in 'await' expression"):
             greenback.await_(42)
 
+
 @types.coroutine
 def async_yield(value):
     return (yield value)
+
 
 async def test_resume_task_with_error(library):
     try:
@@ -91,6 +98,7 @@ async def test_resume_task_with_error(library):
     with pytest.raises(ty, match=re.escape(msg)):
         await_(async_yield(42))
 
+
 async def test_exit_task_with_error():
     async def failing_task():
         await ensure_portal()
@@ -99,6 +107,7 @@ async def test_exit_task_with_error():
     with pytest.raises(TypeError):
         async with trio.open_nursery() as nursery:
             nursery.start_soon(failing_task)
+
 
 async def test_portal_map_does_not_leak(library):
     async with anyio.create_task_group() as tg:
@@ -110,6 +119,7 @@ async def test_portal_map_does_not_leak(library):
         gc.collect()
 
     assert not greenback._impl.task_portal
+
 
 async def test_awaitable(library):
     class SillyAwaitable:
@@ -128,7 +138,12 @@ async def test_awaitable(library):
     # Make sure an awaitable that fails doesn't leave _impl.adapt_awaitable in the tb
     with pytest.raises(ValueError, match="nope") as info:
         await_(SillyAwaitable(fail=True))
-    assert [ent.name for ent in info.traceback] == ["test_awaitable", "await_", "__await__"]
+    assert [ent.name for ent in info.traceback] == [
+        "test_awaitable",
+        "await_",
+        "__await__",
+    ]
+
 
 async def test_checkpoints():
     async def nothing():
@@ -142,6 +157,7 @@ async def test_checkpoints():
         await_(trio.sleep(0))
     with trio.testing.assert_no_checkpoints():
         await_(nothing())
+
 
 async def test_recursive_error(library):
     async def countdown(n):
@@ -170,14 +186,18 @@ async def test_recursive_error(library):
     ]
     assert values == set(range(11))
 
+
 async def test_uncleanable_traceback(library):
     class ICantBelieveItsNotCoro(collections.abc.Coroutine):
         def __await__(self):
             yield from ()  # pragma: no cover
+
         def send(self):
             raise StopIteration  # pragma: no cover
+
         def throw(self, *exc):
             pass  # pragma: no cover
+
         def close(self):
             pass  # pragma: no cover
 

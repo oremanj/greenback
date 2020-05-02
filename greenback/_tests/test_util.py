@@ -1,12 +1,16 @@
 import gc
-import pytest
+import pytest  # type: ignore
 import trio
 from async_generator import asynccontextmanager
-from greenback import autoawait, async_context, async_iter, ensure_portal
+
+from .._impl import ensure_portal
+from .._util import autoawait, async_context, async_iter
+
 
 @autoawait
 async def sync_sleep(n):
     await trio.sleep(n)
+
 
 async def test_autoawait():
     await ensure_portal()
@@ -14,6 +18,7 @@ async def test_autoawait():
     await trio.sleep(2)
     sync_sleep(3)
     assert trio.current_time() == 6
+
 
 class AsyncMagic:
     @autoawait
@@ -23,6 +28,7 @@ class AsyncMagic:
     @autoawait
     async def __del__(self):
         await trio.sleep(2)
+
 
 async def test_magic():
     await ensure_portal()
@@ -44,6 +50,7 @@ async def test_magic():
     # took 4. Regardless the total should be 5 fake seconds.
     assert trio.current_time() == 5
 
+
 async def test_async_context():
     async def validate_against_native(async_cm_factory):
         async def summarize_in(template):
@@ -57,6 +64,7 @@ async def test_async_context():
                     res = f"failed in enter: {ex!r}"
                 else:
                     res = f"got {resobj!r} then failed in exit: {ex!r}"
+            return res
 
         @asynccontextmanager
         async def greenbacked_template():
@@ -79,6 +87,7 @@ async def test_async_context():
     class ThrowExitCM:
         async def __aenter__(self):
             await trio.sleep(1)
+
         async def __aexit__(self, *exc):
             await trio.sleep(1)
             raise ValueError
@@ -87,9 +96,11 @@ async def test_async_context():
         def __init__(self):
             self.__aenter__ = lambda: "instance"  # pragma: no cover
             self.__aexit__ = None
+
         async def __aenter__(self):
             await trio.sleep(2)
             return "class"
+
         async def __aexit__(self, *exc):
             await trio.sleep(5)
 
@@ -99,6 +110,7 @@ async def test_async_context():
     await validate_against_native(ThrowExitCM)
     await validate_against_native(InstanceAttrCM)
     assert trio.current_time() == 18
+
 
 async def test_async_iter():
     async def validate_against_native(async_iterable_factory):
@@ -144,8 +156,10 @@ async def test_async_iter():
     class InstanceAttrIter:
         def __init__(self):
             self.__aiter__ = arange
+
         def __aiter__(self):
             return self
+
         async def __anext__(self):
             raise StopAsyncIteration
 
@@ -157,13 +171,14 @@ async def test_async_iter():
     await validate_against_native(InstanceAttrIter)
     assert trio.current_time() == 96
 
+
 async def test_async_iter_send_and_throw():
     await ensure_portal()
 
     async def example(suppress=False):
         try:
             yield (yield 10) + 1
-        except BaseException as ex:
+        except BaseException:
             if not suppress:
                 raise
 

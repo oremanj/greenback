@@ -7,8 +7,18 @@ import types
 import weakref
 from functools import partial
 from typing import (
-    Any, Awaitable, Callable, Coroutine, Generator, MutableMapping, Optional, TypeVar, Union, TYPE_CHECKING
+    Any,
+    Awaitable,
+    Callable,
+    Coroutine,
+    Generator,
+    MutableMapping,
+    Optional,
+    TypeVar,
+    Union,
+    TYPE_CHECKING,
 )
+
 if TYPE_CHECKING:
     import trio
     import asyncio
@@ -28,6 +38,7 @@ task_portal: MutableMapping[object, greenlet.greenlet] = weakref.WeakKeyDictiona
 # This is determined dynamically when it is first needed.
 aio_task_coro_c_offset: Optional[int] = None
 
+
 async def greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Any:
     """When a task has called ensure_portal(), its coroutine object is a coroutine
     for this function. This function then invokes each step of the task's original
@@ -36,7 +47,8 @@ async def greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Any:
     # This wrapper ensures that the top-level task coroutine is actually a coroutine,
     # not a generator. Some Trio introspection tools care about the difference, as
     # does anyio.
-    return await _greenback_shim(orig_coro)
+    return await _greenback_shim(orig_coro)  # type: ignore
+
 
 @types.coroutine
 def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, Any]:
@@ -78,13 +90,16 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
         # If the underlying coroutine terminated with an exception, it will
         # propagate out of greenback_shim, which is what we want.
 
+
 def current_task() -> Union["trio.hazmat.Task", "asyncio.Task[Any]"]:
     library = sniffio.current_async_library()
     if library == "trio":
-        import trio
+        import trio  # noqa: F811
+
         return trio.hazmat.current_task()
     elif library == "asyncio":
         import asyncio
+
         task = asyncio.current_task()
         if task is None:  # pragma: no cover
             # typeshed says this is possible, but I haven't been able to induce it
@@ -93,6 +108,7 @@ def current_task() -> Union["trio.hazmat.Task", "asyncio.Task[Any]"]:
     else:
         raise RuntimeError(f"greenback does not support {library}")
 
+
 def get_aio_task_coro(task: "asyncio.Task[Any]") -> Coroutine[Any, Any, Any]:
     try:
         # Public API in 3.8+
@@ -100,7 +116,10 @@ def get_aio_task_coro(task: "asyncio.Task[Any]") -> Coroutine[Any, Any, Any]:
     except AttributeError:
         return task._coro  # type: ignore  # (not in typeshed)
 
-def set_aio_task_coro(task: "asyncio.Task[Any]", new_coro: Coroutine[Any, Any, Any]) -> None:
+
+def set_aio_task_coro(
+    task: "asyncio.Task[Any]", new_coro: Coroutine[Any, Any, Any]
+) -> None:
     try:
         task._coro = new_coro  # type: ignore
         return
@@ -138,11 +157,13 @@ def set_aio_task_coro(task: "asyncio.Task[Any]", new_coro: Coroutine[Any, Any, A
     # that also tries to use them but with different types. So private _ctypes
     # APIs it is!
     import _ctypes  # type: ignore
+
     coro_field = ctypes.c_ulong.from_address(id(task) + aio_task_coro_c_offset)
     assert coro_field.value == id(old_coro)
     _ctypes.Py_INCREF(new_coro)
     coro_field.value = id(new_coro)
     _ctypes.Py_DECREF(old_coro)
+
 
 async def ensure_portal() -> None:
     """Ensure that the current async task is able to use `greenback.await_`.
@@ -171,10 +192,12 @@ async def ensure_portal() -> None:
     this_task = current_task()
     library = sniffio.current_async_library()
     if library == "trio":
-        import trio
+        import trio  # noqa: F811
+
         sleep = trio.sleep
     else:
         import asyncio
+
         assert library == "asyncio"
         sleep = asyncio.sleep  # type: ignore
 
@@ -210,8 +233,10 @@ async def ensure_portal() -> None:
     # without any further checkpoints.
     await sleep(0)
 
+
 async def adapt_awaitable(aw: Awaitable[T]) -> T:
     return await aw
+
 
 def await_(aw: Awaitable[T]) -> T:
     """Run an async function or await an awaitable from a synchronous function,
@@ -260,6 +285,7 @@ def await_(aw: Awaitable[T]) -> T:
             # and tb_next of that covers the outermost frame in the user's
             # coroutine, which is what interests us.
             tb = ex.__traceback__
+            assert tb is not None
             for _ in range(trim_tb_frames):
                 if tb.tb_next is None:
                     # If we get here, there were fewer traceback frames

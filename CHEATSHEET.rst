@@ -5,16 +5,6 @@ Thanks for using cookiecutter-trio! This is your project now; you can
 customize it however you like. Here's some reminders of things you
 might want to do to get started:
 
-* Check this into source control (``git init .; git add .; git
-  commit -m "Initial commit"``)
-
-* Add a CODE_OF_CONDUCT.md
-
-* Add a CONTRIBUTING.md
-
-* Search the source tree for COOKIECUTTER-TRIO-TODO to find other
-  places to fill in.
-
 * Enable `Read the Docs <https://readthedocs.org>`__. (Note: this
   project contains a ``.readthedocs.yml`` file that should be enough
   to get things working.)

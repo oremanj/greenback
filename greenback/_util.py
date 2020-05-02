@@ -1,10 +1,21 @@
 from functools import wraps
 from typing import (
-    Any, AsyncIterable, AsyncGenerator, AsyncContextManager, Iterator, Awaitable, Callable, Generic, Optional, TypeVar, cast
+    Any,
+    AsyncIterable,
+    AsyncGenerator,
+    AsyncContextManager,
+    Iterator,
+    Awaitable,
+    Callable,
+    Generic,
+    Optional,
+    TypeVar,
+    cast,
 )
 from ._impl import await_
 
 T = TypeVar("T")
+
 
 def autoawait(fn: Callable[..., Awaitable[T]]) -> Callable[..., T]:
     """Decorator for an async function which allows (and requires) it to be called
@@ -16,7 +27,9 @@ def autoawait(fn: Callable[..., Awaitable[T]]) -> Callable[..., T]:
     @wraps(fn)
     def wrapper(*args: Any, **kw: Any) -> T:
         return await_(fn(*args, **kw))
+
     return wrapper
+
 
 class async_context(Generic[T]):
     """Wraps an async context manager so it is usable in a synchronous
@@ -35,20 +48,21 @@ class async_context(Generic[T]):
     def __exit__(self, *exc: Any) -> Optional[bool]:
         return await_(self._aexit(self._cm, *exc))
 
+
 class async_iter(Generic[T]):
     """Wraps an async iterator so it is usable in a synchronous
     ``for`` loop, ``yield from`` statement, or other context that expects
     a synchronous iterator."""
 
-    __slots__ = ("_it")
+    __slots__ = ("_it",)
 
     def __init__(self, iterable: AsyncIterable[T]):
         try:
             aiter = type(iterable).__aiter__
         except AttributeError:
             raise TypeError(
-                "'async_iter' requires an object with __aiter__ method, got " +
-                type(iterable).__name__
+                "'async_iter' requires an object with __aiter__ method, got "
+                + type(iterable).__name__
             )
         self._it = aiter(iterable)
         try:

@@ -1,9 +1,11 @@
 [run]
 branch=True
 source=greenback
+concurrency=greenlet
 
 [report]
 precision = 1
 exclude_lines =
   pragma: no cover
   abc.abstractmethod
+  if TYPE_CHECKING:

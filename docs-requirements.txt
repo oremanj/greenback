@@ -4,3 +4,4 @@ sphinxcontrib-trio
 towncrier
 sniffio
 greenlet
+outcome

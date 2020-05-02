@@ -134,7 +134,7 @@ something.
 in a certain task, each step of that task will run inside a greenlet.
 (This is achieved by interposing a "shim" coroutine in between the event
 loop and the coroutine for your task; see the source code for details.)
-Calls to ``greenback.run()`` are then able to switch from that greenlet
+Calls to ``greenback.await_()`` are then able to switch from that greenlet
 back to the parent greenlet, which can easily perform the necessary
 ``await`` since it has direct access to the async environment. The
 per-task-step greenlet is then resumed with the value or exception

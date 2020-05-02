@@ -169,11 +169,11 @@ def set_aio_task_coro(
 
 
 async def ensure_portal() -> None:
-    """Ensure that the current async task is able to use `greenback.await_`.
+    """Ensure that the current async task is able to use :func:`greenback.await_`.
 
-    If the current task has called `ensure_portal` previously, calling
-    it again is a no-op. Otherwise, `ensure_portal` interposes a
-    "coroutine shim" provided by ```greenback``` in between the event
+    If the current task has called :func:`ensure_portal` previously, calling
+    it again is a no-op. Otherwise, :func:`ensure_portal` interposes a
+    "coroutine shim" provided by `greenback` in between the event
     loop and the coroutine being used to run the task. For example,
     when running under Trio, `trio.hazmat.Task.coro` is replaced with
     a wrapper around the coroutine it previously referred to. (The
@@ -182,11 +182,11 @@ async def ensure_portal() -> None:
     in that case.)
 
     After installation of the coroutine shim, each task step passes
-    through ``greenback`` on its way into and out of your code. At
+    through `greenback` on its way into and out of your code. At
     some performance cost, this effectively provides a portal that
-    allows later calls to `greenback.await_` in the same task to
+    allows later calls to :func:`greenback.await_` in the same task to
     access an async environment, even if the function that calls
-    `await_` is a synchronous function.
+    :func:`await_` is a synchronous function.
 
     This function is a cancellation point and a schedule point (a checkpoint,
     in Trio terms) even if the calling task already had a portal set up.
@@ -243,10 +243,10 @@ async def adapt_awaitable(aw: Awaitable[T]) -> T:
 
 def await_(aw: Awaitable[T]) -> T:
     """Run an async function or await an awaitable from a synchronous function,
-    using the portal set up for the current async task by `ensure_portal`.
+    using the portal set up for the current async task by :func:`ensure_portal`.
 
     ``greenback.await_(foo())`` is equivalent to ``await foo()``, except that
-    the ``greenback`` version can be written in a synchronous function while
+    the `greenback` version can be written in a synchronous function while
     the native version cannot.
     """
     try:

@@ -21,8 +21,13 @@ Additional utilities
 `greenback` comes with a few tools (built atop :func:`await_`) which may
 be helpful when adapting async code to work with synchronous interfaces.
 
-.. autofunction:: autoawait(async_fn)
+.. function:: autoawait
    :decorator:
+
+   Decorator for an async function which allows (and requires) it to be called
+   from synchronous contexts without ``await``.
+
+   For example, this can be used for magic methods, property setters, and so on.
 
 .. function:: async_context(async_cm)
    :with:

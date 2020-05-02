@@ -24,7 +24,7 @@ representing the two primitive operations
 how ``async``/``await`` work (more approachably explained, too!), see
 the excellent writeup by Brett Cannon: `How the heck does async/await
 work in Python 3.5?
-<https://snarky.ca/how-the-heck-does-async-await-work-in-python-3-5/>`__.
+<https://snarky.ca/how-the-heck-does-async-await-work-in-python-3-5/>`__
 
 Common to both async functions and generators is the limitation that one
 can only directly ``yield`` out of the function containing the ``yield``
@@ -64,7 +64,7 @@ new nested calls to the frame evaluation function. This strategy
 requires the Python interpreter to be aware of each place where
 execution of a generator or async function might be suspended, and
 performance and comprehensibility both argue against allowing such
-suspensions to occur in any operation.
+suspensions to occur in every operation.
 
 Sounds like we're out of luck, then. Or are we?
 
@@ -99,9 +99,9 @@ until your top-level caller (such as the async event loop) sees fit to
 resume you.  From the perspective of someone writing an async event
 loop, the perspective is reversed: each "step" of the async function
 (represented by a ``send()`` call on the coroutine object) cedes
-control to the async task until it feels like yielding control back to
-the event loop.  Our goal is to allow something other than a ``yield``
-statement to make this ``send()`` call return.
+control to an async task until the task feels like yielding control
+back to the event loop.  Our goal is to allow something other than a
+``yield`` statement to make this ``send()`` call return.
 
 `greenback` achieves this by introducing a "shim" coroutine in
 between the async event loop and your task's "real"

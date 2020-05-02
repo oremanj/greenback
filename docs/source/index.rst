@@ -54,6 +54,9 @@ Quickstart
 
 * For more details and additional helpers, read the rest of this documentation!
 
+Detailed documentation
+----------------------
+
 .. toctree::
    :maxdepth: 2
 

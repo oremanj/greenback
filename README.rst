@@ -163,12 +163,13 @@ heavily on it.
   ``greenback`` too, but perhaps only under an obscure or unlikely
   series of operations.
 
-* Calling ``greenback.run()`` inside a finalizer (``__del__`` method)
-  or weakref callback is unsupported. It might work most of the time,
-  or even all the time, but the environment in which such methods run
-  is weird enough that the author isn't prepared to make any guarantees.
-  (Not that you have any guarantees about the rest of it, just some
-  better theoretical grounding.)
+* Calling ``greenback.await_()`` inside a finalizer (``__del__``
+  method), signal handler, or weakref callback is unsupported. It
+  might work most of the time, or even all the time, but the
+  environment in which such methods run is weird enough that the
+  author isn't prepared to make any guarantees.  (Not that you have
+  any guarantees about the rest of it, just some better theoretical
+  grounding.)
 
 
 License

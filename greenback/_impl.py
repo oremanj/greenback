@@ -78,7 +78,7 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
                 next_yield = child_greenlet.switch(orig_coro)
             else:
                 # Resume the previous send() or throw() call, which is currently
-                # at a simulated yield point in a greenback.run() call.
+                # at a simulated yield point in a greenback.await_() call.
                 next_yield = child_greenlet.switch(next_send)
             if child_greenlet.dead:
                 # The send() or throw() call completed so we need to
@@ -228,11 +228,11 @@ async def ensure_portal() -> None:
     # original task coroutine
     commit()
 
-    # Make sure calls to greenback.run() in this task know where to find us
+    # Make sure calls to greenback.await_() in this task know where to find us
     task_portal[this_task] = greenlet.getcurrent()
 
     # Execute a checkpoint so that we're now running inside the shim coroutine.
-    # This is necessary in case the caller immediately invokes greenback.run()
+    # This is necessary in case the caller immediately invokes greenback.await_()
     # without any further checkpoints.
     await sleep(0)
 

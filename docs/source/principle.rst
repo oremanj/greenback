@@ -19,8 +19,8 @@ implementation detail of the particular framework you're using. For
 example, asyncio yields `~asyncio.Future`\s, curio yields specially
 formatted tuples, and Trio (currently) yields internal objects
 representing the two primitive operations
-:func:`~trio.hazmat.cancel_shielded_checkpoint` and
-:func:`~trio.hazmat.wait_task_rescheduled`.  For much more detail on
+:func:`~trio.lowlevel.cancel_shielded_checkpoint` and
+:func:`~trio.lowlevel.wait_task_rescheduled`.  For much more detail on
 how ``async``/``await`` work (more approachably explained, too!), see
 the excellent writeup by Brett Cannon: `How the heck does async/await
 work in Python 3.5?
@@ -119,7 +119,7 @@ loop and get their responses sent back down.
 
 Once you understand the approach, most of the remaining trickery is in
 the answer to the question: "how do we install this shim coroutine?"
-In Trio you can directly replace `trio.hazmat.Task.coro` with a
+In Trio you can directly replace `trio.lowlevel.Task.coro` with a
 wrapper of your choosing, but in asyncio the ability to modify the
 analogous field is not exposed publicly, and on CPython it's not even
 exposed to Python at all. It's necessary to use `ctypes` to edit the

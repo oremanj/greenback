@@ -1,5 +1,0 @@
-Added :func:`greenback.bestow_portal`, which enables greenback for a task from outside
-of that task.
-
-Added support for newer versions of Trio with a `trio.lowlevel` module rather than
-``trio.hazmat``.

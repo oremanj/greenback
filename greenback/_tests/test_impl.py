@@ -2,6 +2,8 @@ import collections
 import gc
 import re
 import types
+import sys
+import warnings
 
 import anyio
 import pytest  # type: ignore
@@ -10,7 +12,17 @@ import trio
 import trio.testing
 
 import greenback
-from .._impl import ensure_portal, await_
+from .._impl import ensure_portal, bestow_portal, await_
+
+
+async def noop():
+    pass
+
+
+with warnings.catch_warnings():
+    # anyio hasn't been updated for the deprecations in Trio 0.15.0 yet
+    warnings.simplefilter("ignore")
+    anyio.run(noop, backend="trio")
 
 
 async def test_simple(library):
@@ -61,6 +73,28 @@ async def test_complex(library):
         await_(conn.send_all(b"hello"))
         assert b"hello" == await_(conn.receive_some(1024))
         await_(tg.cancel_scope.cancel())
+
+
+async def test_bestow(library):
+    task = None
+    task_started = anyio.create_event()
+    portal_installed = anyio.create_event()
+
+    async def task_fn():
+        nonlocal task
+        task = greenback._impl.current_task()
+        await task_started.set()
+        await portal_installed.wait()
+        await_(anyio.sleep(0))
+
+    async with anyio.create_task_group() as tg:
+        await tg.spawn(task_fn)
+        await task_started.wait()
+        greenback.bestow_portal(task)
+        await portal_installed.set()
+
+    with pytest.raises(RuntimeError):
+        await_(anyio.sleep(0))
 
 
 def test_misuse():

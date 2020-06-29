@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
-# Maps each task (trio.hazmat.Task or asyncio.Task) that has called
+# Maps each task (trio.lowlevel.Task or asyncio.Task) that has called
 # ensure_portal() to the greenlet running its coroutine shim. Note
 # that this will be the same greenlet for every task unless greenlets
 # are being used for purposes other than greenback in this program.
@@ -91,12 +91,15 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
         # propagate out of greenback_shim, which is what we want.
 
 
-def current_task() -> Union["trio.hazmat.Task", "asyncio.Task[Any]"]:
+def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
     library = sniffio.current_async_library()
     if library == "trio":
-        import trio  # noqa: F811
+        try:
+            from trio.lowlevel import current_task
+        except ImportError:
+            from trio.hazmat import current_task
 
-        return trio.hazmat.current_task()
+        return current_task()
     elif library == "asyncio":
         import asyncio
 
@@ -168,6 +171,52 @@ def set_aio_task_coro(
     _ctypes.Py_DECREF(old_coro)
 
 
+def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> None:
+    """Ensure that the given async *task* is able to use :func:`greenback.await_`.
+
+    This works like calling :func:`ensure_portal` from within *task*.
+    If you pass the currently running task, then the portal will not
+    become usable until after the task yields control to the event loop.
+
+    If your program uses greenlets for non-`greenback` purposes, then you must
+    call :func:`bestow_portal` from the same greenlet that the *task* will run in.
+    (This is rare; generally the entire async event loop runs in one greenlet,
+    so the distinction doesn't matter.)
+    """
+
+    if task in task_portal:
+        # This task already has a greenback shim; nothing to do.
+        return
+
+    # Create the shim coroutine
+    if type(task).__module__.startswith("trio."):
+        try:
+            from trio.lowlevel import Task
+        except ImportError:
+            from trio.hazmat import Task
+
+        assert isinstance(task, Task)
+        shim_coro = greenback_shim(task.coro)
+        commit: Callable[[], None] = partial(setattr, task, "coro", shim_coro)
+    else:
+        import asyncio
+
+        assert isinstance(task, asyncio.Task)
+        shim_coro = greenback_shim(get_aio_task_coro(task))
+        commit = partial(set_aio_task_coro, task, shim_coro)
+
+    # Step it once so it's ready to get resumed by the event loop
+    first_yield = shim_coro.send(None)
+    assert first_yield == "ready"
+
+    # Update so the event loop will resume shim_coro rather than the
+    # original task coroutine
+    commit()
+
+    # Make sure calls to greenback.await_() in this task know where to find us
+    task_portal[task] = greenlet.getcurrent()
+
+
 async def ensure_portal() -> None:
     """Ensure that the current async task is able to use :func:`greenback.await_`.
 
@@ -175,7 +224,7 @@ async def ensure_portal() -> None:
     it again is a no-op. Otherwise, :func:`ensure_portal` interposes a
     "coroutine shim" provided by `greenback` in between the event
     loop and the coroutine being used to run the task. For example,
-    when running under Trio, `trio.hazmat.Task.coro` is replaced with
+    when running under Trio, `trio.lowlevel.Task.coro` is replaced with
     a wrapper around the coroutine it previously referred to. (The
     same thing happens under asyncio, but asyncio doesn't expose the
     coroutine field publicly, so some additional trickery is required
@@ -193,48 +242,14 @@ async def ensure_portal() -> None:
     """
 
     this_task = current_task()
-    library = sniffio.current_async_library()
-    if library == "trio":
-        import trio  # noqa: F811
-
-        sleep = trio.sleep
-    else:
-        import asyncio
-
-        assert library == "asyncio"
-        sleep = asyncio.sleep  # type: ignore
-
-    if this_task in task_portal:
-        # This task already has a greenback shim; nothing to do.
-        await sleep(0)
-        return
-
-    # Create the shim coroutine
-    library = sniffio.current_async_library()
-    if library == "trio":
-        assert isinstance(this_task, trio.hazmat.Task)
-        shim_coro = greenback_shim(this_task.coro)
-        commit: Callable[[], None] = partial(setattr, this_task, "coro", shim_coro)
-    else:
-        assert isinstance(this_task, asyncio.Task)
-        shim_coro = greenback_shim(get_aio_task_coro(this_task))
-        commit = partial(set_aio_task_coro, this_task, shim_coro)
-
-    # Step it once so it's ready to get resumed by the event loop
-    first_yield = shim_coro.send(None)
-    assert first_yield == "ready"
-
-    # Update so the event loop will resume shim_coro rather than the
-    # original task coroutine
-    commit()
-
-    # Make sure calls to greenback.await_() in this task know where to find us
-    task_portal[this_task] = greenlet.getcurrent()
+    if this_task not in task_portal:
+        bestow_portal(this_task)
 
     # Execute a checkpoint so that we're now running inside the shim coroutine.
     # This is necessary in case the caller immediately invokes greenback.await_()
     # without any further checkpoints.
-    await sleep(0)
+    library = sniffio.current_async_library()
+    await sys.modules[library].sleep(0)
 
 
 async def adapt_awaitable(aw: Awaitable[T]) -> T:

@@ -11,6 +11,11 @@ In order to use `greenback` in a particular async task, you must first call
 
 .. autofunction:: ensure_portal
 
+To support debugging and introspection tools, it's also possible to
+enable `greenback` in a task from outside that task:
+
+.. autofunction:: bestow_portal
+
 Once the portal has been set up, you can use it with :func:`await_`:
 
 .. autofunction:: await_(awaitable)

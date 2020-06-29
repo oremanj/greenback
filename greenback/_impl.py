@@ -96,7 +96,7 @@ def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
     if library == "trio":
         try:
             from trio.lowlevel import current_task
-        except ImportError:
+        except ImportError:  # pragma: no cover
             if not TYPE_CHECKING:
                 from trio.hazmat import current_task
 
@@ -193,7 +193,7 @@ def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> Non
     if type(task).__module__.startswith("trio."):
         try:
             from trio.lowlevel import Task
-        except ImportError:
+        except ImportError:  # pragma: no cover
             if not TYPE_CHECKING:
                 from trio.hazmat import Task
 

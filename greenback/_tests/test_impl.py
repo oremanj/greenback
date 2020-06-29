@@ -91,6 +91,7 @@ async def test_bestow(library):
         await tg.spawn(task_fn)
         await task_started.wait()
         greenback.bestow_portal(task)
+        greenback.bestow_portal(task)
         await portal_installed.set()
 
     with pytest.raises(RuntimeError):

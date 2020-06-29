@@ -97,7 +97,8 @@ def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
         try:
             from trio.lowlevel import current_task
         except ImportError:
-            from trio.hazmat import current_task
+            if not TYPE_CHECKING:
+                from trio.hazmat import current_task
 
         return current_task()
     elif library == "asyncio":
@@ -193,7 +194,8 @@ def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> Non
         try:
             from trio.lowlevel import Task
         except ImportError:
-            from trio.hazmat import Task
+            if not TYPE_CHECKING:
+                from trio.hazmat import Task
 
         assert isinstance(task, Task)
         shim_coro = greenback_shim(task.coro)
@@ -249,7 +251,7 @@ async def ensure_portal() -> None:
     # This is necessary in case the caller immediately invokes greenback.await_()
     # without any further checkpoints.
     library = sniffio.current_async_library()
-    await sys.modules[library].sleep(0)
+    await sys.modules[library].sleep(0)  # type: ignore
 
 
 async def adapt_awaitable(aw: Awaitable[T]) -> T:

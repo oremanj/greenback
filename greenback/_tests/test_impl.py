@@ -134,6 +134,7 @@ def test_misuse():
             greenback.await_(42)
 
 
+@pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython only")
 def test_find_ptr_in_object():
     from greenback._impl import _aligned_ptr_offset_in_object
 

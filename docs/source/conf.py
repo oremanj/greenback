@@ -28,6 +28,9 @@ nitpicky = True
 nitpick_ignore = [
     # Format is ("sphinx reference type", "string"), e.g.:
     ("py:obj", "bytes-like"),
+    ("py:class", "Callable[[...], Awaitable[T]]"),
+    ("py:class", "Callable[[...], T]"),
+    ("py:class", "T"),
 ]
 autodoc_inherit_docstrings = False
 default_role = "obj"

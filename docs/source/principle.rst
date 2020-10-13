@@ -173,6 +173,8 @@ pursue whichever ones seem worthwhile to you.
 What's the performance impact?
 ------------------------------
 
+.. currentmodule:: greenback
+
 Running anything with a greenback portal available incurs some slowdown,
 and actually using :func:`await_` incurs some more. The slowdown is not
 extreme.

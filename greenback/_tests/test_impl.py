@@ -69,9 +69,15 @@ async def test_complex(library):
 async def test_with_portal_run(library):
     for test in (test_simple, test_complex):
         await greenback.with_portal_run(test, library)
+        await greenback.with_portal_run(greenback.with_portal_run, test, library)
         with pytest.raises(RuntimeError, match="greenback.ensure_portal"):
             await_(anyio.sleep(0))
         await greenback.with_portal_run_sync(lambda: await_(test(library)))
+        await greenback.with_portal_run_sync(
+            lambda: await_(
+                greenback.with_portal_run_sync(lambda: await_(test(library)))
+            )
+        )
         with pytest.raises(RuntimeError, match="greenback.ensure_portal"):
             await_(anyio.sleep(0))
 

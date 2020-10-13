@@ -137,7 +137,7 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
 
 
 @types.coroutine
-def _greenback_shim_sync(target: Callable[[], T]) -> Generator[Any, Any, T]:
+def _greenback_shim_sync(target: Callable[[], Any]) -> Generator[Any, Any, Any]:
     """Run target(), forwarding the event loop traps and responses necessary
     to implement any await_() calls that it makes.
 
@@ -455,11 +455,12 @@ async def with_portal_run(
     this_task = current_task()
     if this_task in task_portal:
         return await async_fn(*args, **kwds)
-    shim_coro = _greenback_shim(async_fn(*args, **kwds))
+    shim_coro = _greenback_shim(async_fn(*args, **kwds))  # type: ignore
     assert shim_coro.send(None) == "ready"
     task_portal[this_task] = greenlet.getcurrent()
     try:
-        return await shim_coro
+        res: T = await shim_coro
+        return res
     finally:
         del task_portal[this_task]
 
@@ -487,7 +488,8 @@ async def with_portal_run_sync(sync_fn: Callable[..., T], *args: Any, **kwds: An
         return sync_fn(*args, **kwds)
     task_portal[this_task] = greenlet.getcurrent()
     try:
-        return await _greenback_shim_sync(partial(sync_fn, *args, **kwds))
+        res: T = await _greenback_shim_sync(partial(sync_fn, *args, **kwds))
+        return res
     finally:
         del task_portal[this_task]
 

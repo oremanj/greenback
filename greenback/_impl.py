@@ -75,6 +75,25 @@ async def greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Any:
 
 @types.coroutine
 def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, Any]:
+    # In theory this could be written as a simpler function that uses
+    # _greenback_shim_sync():
+    #
+    #     next_yield = "ready"
+    #     while True:
+    #         try:
+    #             target = partial(orig_coro.send, (yield next_yield))
+    #         except BaseException as ex:
+    #             target = partial(orig_coro.throw, ex)
+    #         try:
+    #             next_yield = yield from _greenback_shim_sync(target)
+    #         except StopIteration as ex:
+    #             return ex.value
+    #
+    # In practice, this doesn't work that well: _greenback_shim_sync()
+    # has a hard time raising StopIteration, because it's a generator,
+    # and unrolling it into a non-generator iterable makes it slower.
+    # So we'll accept a bit of code duplication.
+
     # The greenlet in which each send() or throw() call will occur.
     child_greenlet: Optional[greenlet.greenlet] = None
 
@@ -115,6 +134,51 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
             return ex.value
         # If the underlying coroutine terminated with an exception, it will
         # propagate out of greenback_shim, which is what we want.
+
+
+@types.coroutine
+def _greenback_shim_sync(target: Callable[[], T]) -> Generator[Any, Any, T]:
+    """Run target(), forwarding the event loop traps and responses necessary
+    to implement any await_() calls that it makes.
+
+    This is only a little bit faster than using greenback_shim() plus a
+    sync-to-async wrapper -- maybe 2us faster for the entire call,
+    so it only matters when you're scoping the portal to a very small
+    range. We ship it anyway because it's easier to understand than
+    the async-compatible _greenback_shim(), and helps with understanding
+    the latter.
+    """
+
+    # The greenlet in which we run target().
+    child_greenlet = greenlet.greenlet(target)
+
+    # The next thing we plan to yield to the event loop.
+    next_yield: Any
+
+    # The next thing we plan to send via greenlet.switch(). This is an
+    # outcome representing the value or error that the event loop resumed
+    # us with. Initially None for the very first zero-argument switch().
+    next_send: Optional[outcome.Outcome[Any]] = None
+
+    while True:
+        if greenlet_needs_context_fixup:
+            fix_greenlet_context(child_greenlet)
+        if next_send is None:
+            next_yield = child_greenlet.switch()
+        else:
+            next_yield = child_greenlet.switch(next_send)
+        if child_greenlet.dead:
+            # target() returned, so next_yield is its return value, not an
+            # event loop trap. (If it exits with an exception, that exception
+            # will propagate out of switch() and thus out of the loop, which
+            # is what we want.)
+            return next_yield
+        try:
+            # Normally we send to orig_coro whatever the event loop sent us
+            next_send = outcome.Value((yield next_yield))
+        except BaseException as ex:
+            # If the event loop resumed us with an error, we forward that error
+            next_send = outcome.Error(ex)
 
 
 def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
@@ -284,14 +348,16 @@ def fix_greenlet_context(gr: greenlet.greenlet) -> None:
 def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> None:
     """Ensure that the given async *task* is able to use :func:`greenback.await_`.
 
-    This works like calling :func:`ensure_portal` from within *task*.
-    If you pass the currently running task, then the portal will not
-    become usable until after the task yields control to the event loop.
+    This works like calling :func:`ensure_portal` from within *task*,
+    with one exception: if you pass the currently running task, then
+    the portal will not become usable until after the task yields
+    control to the event loop.
 
     If your program uses greenlets for non-`greenback` purposes, then you must
     call :func:`bestow_portal` from the same greenlet that the *task* will run in.
     (This is rare; generally the entire async event loop runs in one greenlet,
     so the distinction doesn't matter.)
+
     """
 
     if task in task_portal:
@@ -343,7 +409,7 @@ async def ensure_portal() -> None:
 
     After installation of the coroutine shim, each task step passes
     through `greenback` on its way into and out of your code. At
-    some performance cost, this effectively provides a portal that
+    some performance cost, this effectively provides a **portal** that
     allows later calls to :func:`greenback.await_` in the same task to
     access an async environment, even if the function that calls
     :func:`await_` is a synchronous function.
@@ -363,13 +429,77 @@ async def ensure_portal() -> None:
     await sys.modules[library].sleep(0)  # type: ignore
 
 
+async def with_portal_run(
+    async_fn: Callable[..., Awaitable[T]], *args: Any, **kwds: Any
+) -> T:
+    """Execute ``await async_fn(*args, **kwds)`` in a context that is able
+    to use :func:`greenback.await_`.
+
+    If the current task already has a greenback portal set up via a
+    call to one of the other ``greenback.*_portal()`` functions, then
+    :func:`with_portal_run` simply calls *async_fn*.  If *async_fn*
+    uses :func:`greenback.await_`, the existing portal will take care
+    of it.
+
+    Otherwise (if there is no portal already available to the current task),
+    :func:`with_portal_run` creates a new portal which lasts only for the
+    duration of the call to *async_fn*. If *async_fn* then calls
+    :func:`ensure_portal`, an additional portal will **not** be created:
+    the task will still have just the portal installed by
+    :func:`with_portal_run`, which will be removed when *async_fn* returns.
+
+    This function does *not* add any cancellation point or schedule point
+    beyond those that already exist inside *async_fn*.
+    """
+
+    this_task = current_task()
+    if this_task in task_portal:
+        return await async_fn(*args, **kwds)
+    shim_coro = _greenback_shim(async_fn(*args, **kwds))
+    assert shim_coro.send(None) == "ready"
+    task_portal[this_task] = greenlet.getcurrent()
+    try:
+        return await shim_coro
+    finally:
+        del task_portal[this_task]
+
+
+async def with_portal_run_sync(sync_fn: Callable[..., T], *args: Any, **kwds: Any) -> T:
+    """Execute ``sync_fn(*args, **kwds)`` in a context that is able
+    to use :func:`greenback.await_`.
+
+    If the current task already has a greenback portal set up via a
+    call to one of the other ``greenback.*_portal()`` functions, then
+    :func:`with_portal_run` simply calls *sync_fn*.  If *sync_fn*
+    uses :func:`greenback.await_`, the existing portal will take care
+    of it.
+
+    Otherwise (if there is no portal already available to the current task),
+    :func:`with_portal_run_sync` creates a new portal which lasts only for the
+    duration of the call to *sync_fn*.
+
+    This function does *not* add any cancellation point or schedule point
+    beyond those that already exist due to any :func:`await_`\\s inside *sync_fn*.
+    """
+
+    this_task = current_task()
+    if this_task in task_portal:
+        return sync_fn(*args, **kwds)
+    task_portal[this_task] = greenlet.getcurrent()
+    try:
+        return await _greenback_shim_sync(partial(sync_fn, *args, **kwds))
+    finally:
+        del task_portal[this_task]
+
+
 async def adapt_awaitable(aw: Awaitable[T]) -> T:
     return await aw
 
 
 def await_(aw: Awaitable[T]) -> T:
     """Run an async function or await an awaitable from a synchronous function,
-    using the portal set up for the current async task by :func:`ensure_portal`.
+    using the portal set up for the current async task by :func:`ensure_portal`,
+    :func:`bestow_portal`, :func:`with_portal_run`, or :func:`with_portal_run_sync`.
 
     ``greenback.await_(foo())`` is equivalent to ``await foo()``, except that
     the `greenback` version can be written in a synchronous function while

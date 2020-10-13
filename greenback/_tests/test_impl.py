@@ -12,7 +12,8 @@ import trio
 import trio.testing
 
 import greenback
-from .._impl import ensure_portal, bestow_portal, await_
+from .._impl import ensure_portal, bestow_portal, with_portal_run, with_portal_run_sync
+from .._impl import await_
 
 
 async def test_simple(library):
@@ -63,6 +64,16 @@ async def test_complex(library):
         await_(conn.send(b"hello"))
         assert b"hello" == await_(conn.receive(1024))
         await_(tg.cancel_scope.cancel())
+
+
+async def test_with_portal_run(library):
+    for test in (test_simple, test_complex):
+        await greenback.with_portal_run(test, library)
+        with pytest.raises(RuntimeError, match="greenback.ensure_portal"):
+            await_(anyio.sleep(0))
+        await greenback.with_portal_run_sync(lambda: await_(test(library)))
+        with pytest.raises(RuntimeError, match="greenback.ensure_portal"):
+            await_(anyio.sleep(0))
 
 
 async def test_bestow(library):

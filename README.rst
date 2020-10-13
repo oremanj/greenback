@@ -141,7 +141,7 @@ per-task-step greenlet is then resumed with the value or exception
 produced by the ``await``.
 
 **Should I trust this in production?** Maybe; try it and see. The
-technique is in some ways an awful hack, and certainly has performance
+technique is in some ways an awful hack, and has some performance
 implications (any task in which you call ``await
 greenback.ensure_portal()`` will run somewhat slower).  ``greenback``
 itself is a fairly small amount of pure-Python code on top of

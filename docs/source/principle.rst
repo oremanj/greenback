@@ -169,3 +169,51 @@ running multiple async tests in parallel in the same thread. At this
 point such things are only vague ideas, which may well fail to work
 out. The author's hope is that `greenback`  gives you the tool to
 pursue whichever ones seem worthwhile to you.
+
+What's the performance impact?
+------------------------------
+
+.. currentmodule:: greenback
+
+Running anything with a greenback portal available incurs some slowdown,
+and actually using :func:`await_` incurs some more. The slowdown is not
+extreme.
+
+The slowdown due to `greenback` is mostly proportional to the
+number of times you yield to the event loop with a portal active, as well
+as the number of portal creations and :func:`await_` calls you perform.
+You can run the ``microbenchmark.py`` script from the Git repository
+to see the numbers on your machine. On mine, with CPython 3.8 and Trio 0.17.0, I get:
+
+* Baseline: The simplest possible async operation is what Trio calls a
+  *checkpoint*: yield to the event loop and ask to immediately be
+  rescheduled again.  This takes about **5 microseconds** on Trio and
+  **3.5 microseconds** on asyncio.  (asyncio is able to take advantage
+  of some C acceleration here.)
+
+* Adding the greenback portal, without making any :func:`await_` calls
+  yet, adds about **2 microseconds** per checkpoint when using
+  ``greenlet`` version 0.4.16. Under 0.4.17 (the latest version at the
+  time of this writing), `greenback` needs to deploy a rather
+  expensive regression workaround, increasing to about **7
+  microseconds** the additional cost per checkpoint from having the
+  portal installed.
+
+* Executing each of those checkpoints through a separate
+  :func:`await_` adds another **4 microseconds** per :func:`await_` on
+  ``greenlet`` 0.4.16, or **7 microseconds** on 0.4.17. (Surrounding
+  the entire checkpoint loop in a single :func:`await_`, by contrast,
+  has negligible impact.)
+
+* Creating a new portal for each of those ``await_(checkpoint())``
+  invocations adds another **7 microseconds** or so per portal
+  creation (plus another 5 on greenlet 0.4.17). If you don't execute
+  any checkpoints while the portal is active, you can create and
+  destroy it in more like **4.5 microseconds** (plus another 2.5 on
+  greenlet 0.4.17).  If you use :func:`with_portal_run_sync`, portal
+  creation gets about **2 microseconds** faster.
+
+Keep in mind that these are microbenchmarks: your actual program is
+probably not executing checkpoints in a tight loop! The more work
+you're doing each time you're scheduled, the less overhead `greenback`
+will entail.

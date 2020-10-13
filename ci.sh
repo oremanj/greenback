@@ -135,6 +135,12 @@ else
     # Actual tests
     python -m pip install -r test-requirements.txt
 
+    if [ "$OLD_GREENLET" = "1" ]; then
+        # We run some tests under a greenlet version without the contextvars bug,
+        # to make sure we haven't regressed that
+        python -m pip install greenlet==0.4.16
+    fi
+
     mkdir empty
     cd empty
 

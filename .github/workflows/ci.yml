@@ -1,6 +1,10 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
 
 jobs:
   Windows:
@@ -14,12 +18,13 @@ jobs:
           - '3.6'
           - '3.7'
           - '3.8'
+          - '3.9.0-rc.2'
         arch: ['x86', 'x64']
     steps:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Setup python
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v2
         with:
           python-version: '${{ matrix.python }}'
           architecture: '${{ matrix.arch }}'
@@ -41,6 +46,7 @@ jobs:
           - '3.6'
           - '3.7'
           - '3.8'
+          - '3.9.0-rc.2'
         check_docs: ['0']
         check_lint: ['0']
         extra_name: ['']
@@ -55,7 +61,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Setup python
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v2
         with:
           python-version: '${{ matrix.python }}'
       - name: Run tests
@@ -77,11 +83,12 @@ jobs:
           - '3.6'
           - '3.7'
           - '3.8'
+          - '3.9.0-rc.2'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Setup python
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v2
         with:
           python-version: '${{ matrix.python }}'
       - name: Run tests

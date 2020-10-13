@@ -134,6 +134,16 @@ def test_misuse():
             greenback.await_(42)
 
 
+def test_find_ptr_in_object():
+    from greenback._impl import _aligned_ptr_offset_in_object
+
+    class A:
+        pass
+
+    assert _aligned_ptr_offset_in_object(A(), A) == object().__sizeof__() / 2
+    assert _aligned_ptr_offset_in_object(A(), "nope") is None
+
+
 @types.coroutine
 def async_yield(value):
     return (yield value)

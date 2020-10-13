@@ -25,7 +25,10 @@ if TYPE_CHECKING:
 
 try:
     import contextvars
-except ImportError:
+except ImportError:  # pragma: no cover
+    # 'no cover' rationale: Trio pulls in the contextvars backport,
+    # and it's not worth adding more CI runs in environments that
+    # specifically exclude Trio.
     if not TYPE_CHECKING:
         contextvars = None
 

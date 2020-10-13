@@ -259,7 +259,7 @@ def set_greenlet_context(
 
     # See comments in set_aio_task_coro().
     import ctypes
-    import _ctypes  # type: ignore
+    import _ctypes
 
     context_field = ctypes.c_size_t.from_address(id(gr) + greenlet_context_c_offset)
     assert context_field.value == (0 if old_context is None else id(old_context))

@@ -5,7 +5,7 @@ pytest-trio
 
 # We run tests on both asyncio and Trio
 trio >= 0.16.0
-anyio
+anyio >= 2.0
 
 # Tools
 black == 19.10b0; implementation_name == "cpython"

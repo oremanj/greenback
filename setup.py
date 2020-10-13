@@ -15,8 +15,8 @@ setup(
     license="MIT -or- Apache License 2.0",
     packages=find_packages(),
     include_package_data=True,
-    install_requires=["greenlet", "sniffio", "outcome",],
-    keywords=["async", "io", "trio", "asyncio",],
+    install_requires=["greenlet!=0.4.17", "sniffio", "outcome"],
+    keywords=["async", "io", "trio", "asyncio"],
     python_requires=">=3.6",
     classifiers=[
         "License :: OSI Approved :: MIT License",

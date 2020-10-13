@@ -1,2 +1,0 @@
-Work around a regression introduced by greenlet 0.4.17's attempt at adding
-contextvars support.

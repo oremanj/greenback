@@ -1,6 +1,0 @@
-Add :func:`greenback.with_portal_run` and :func:`greenback.with_portal_run_sync`,
-which let you scope the greenback portal (and its performance impact) to
-a single function call rather than an entire task.
-:func:`greenback.with_portal_run_sync` provides somewhat reduced
-portal setup/teardown overhead in cases where the entire function you
-want to provide the portal to is syntactically synchronous.

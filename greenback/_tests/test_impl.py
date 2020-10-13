@@ -6,8 +6,8 @@ import sys
 import warnings
 
 import anyio
-import pytest  # type: ignore
-import sniffio  # type: ignore
+import pytest
+import sniffio
 import trio
 import trio.testing
 

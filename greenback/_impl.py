@@ -1,7 +1,7 @@
 import collections
 import greenlet  # type: ignore
 import outcome
-import sniffio  # type: ignore
+import sniffio
 import sys
 import types
 import weakref

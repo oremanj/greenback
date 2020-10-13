@@ -1,5 +1,5 @@
 import gc
-import pytest  # type: ignore
+import pytest
 import trio
 from async_generator import asynccontextmanager
 

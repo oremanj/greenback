@@ -23,6 +23,15 @@ if TYPE_CHECKING:
     import trio
     import asyncio
 
+try:
+    import contextvars
+except ImportError:  # pragma: no cover
+    # 'no cover' rationale: Trio pulls in the contextvars backport,
+    # and it's not worth adding more CI runs in environments that
+    # specifically exclude Trio.
+    if not TYPE_CHECKING:
+        contextvars = None
+
 T = TypeVar("T")
 
 # Maps each task (trio.lowlevel.Task or asyncio.Task) that has called
@@ -37,6 +46,20 @@ task_portal: MutableMapping[object, greenlet.greenlet] = weakref.WeakKeyDictiona
 # asyncio.Task is implemented in C (which it generally is on CPython 3.6+).
 # This is determined dynamically when it is first needed.
 aio_task_coro_c_offset: Optional[int] = None
+
+# If True, we're using a buggy version of greenlet which will clobber our
+# contextvars context when we switch greenlets.
+# See https://github.com/python-greenlet/greenlet/issues/196 for details.
+greenlet_needs_context_fixup: bool = (
+    sys.implementation.name == "cpython"
+    and contextvars is not None
+    and getattr(greenlet, "GREENLET_USE_CONTEXT_VARS", False)
+)
+
+# The offset of greenlet.context in the greenlet object memory layout.
+# Only relevant if greenlet_needs_context_fixup.
+# This is determined dynamically when it is first needed.
+greenlet_context_c_offset: Optional[int] = None
 
 
 async def greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Any:
@@ -75,11 +98,14 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
             if not child_greenlet:
                 # Start a new send() or throw() call on the original coroutine.
                 child_greenlet = greenlet.greenlet(next_send.send)
-                next_yield = child_greenlet.switch(orig_coro)
+                switch_arg: Any = orig_coro
             else:
                 # Resume the previous send() or throw() call, which is currently
                 # at a simulated yield point in a greenback.await_() call.
-                next_yield = child_greenlet.switch(next_send)
+                switch_arg = next_send
+            if greenlet_needs_context_fixup:
+                fix_greenlet_context(child_greenlet)
+            next_yield = child_greenlet.switch(switch_arg)
             if child_greenlet.dead:
                 # The send() or throw() call completed so we need to
                 # create a new greenlet for the next one.
@@ -124,6 +150,22 @@ def get_aio_task_coro(task: "asyncio.Task[Any]") -> Coroutine[Any, Any, Any]:
         return task._coro  # type: ignore  # (not in typeshed)
 
 
+def _aligned_ptr_offset_in_object(obj: object, referent: object) -> Optional[int]:
+    """Return the byte offset in the C representation of *obj* (an
+    arbitrary Python object) at which is found a naturally-aligned
+    pointer that points to *referent*.  If *search_for*
+    can't be found, return None.
+    """
+    import ctypes
+
+    size = obj.__sizeof__()
+    arraytype = ctypes.c_size_t * (size // ctypes.sizeof(ctypes.c_size_t))
+    for idx, value in enumerate(arraytype.from_address(id(obj))):
+        if value == id(referent):
+            return idx * ctypes.sizeof(ctypes.c_size_t)
+    return None
+
+
 def set_aio_task_coro(
     task: "asyncio.Task[Any]", new_coro: Coroutine[Any, Any, Any]
 ) -> None:
@@ -148,13 +190,8 @@ def set_aio_task_coro(
     if aio_task_coro_c_offset is None:
         # Deduce the offset by scanning the task object representation
         # for id(task._coro)
-        size = task.__sizeof__()
-        arraytype = ctypes.c_size_t * (size // ctypes.sizeof(ctypes.c_size_t))
-        for idx, value in enumerate(arraytype.from_address(id(task))):
-            if value == id(old_coro):
-                aio_task_coro_c_offset = idx * ctypes.sizeof(ctypes.c_size_t)
-                break
-        else:  # pragma: no cover
+        aio_task_coro_c_offset = _aligned_ptr_offset_in_object(task, old_coro)
+        if aio_task_coro_c_offset is None:  # pragma: no cover
             raise RuntimeError("Couldn't determine C offset of asyncio.Task._coro")
 
     # (Explanation copied from trio._core._multierror, applies equally well here.)
@@ -170,6 +207,78 @@ def set_aio_task_coro(
     _ctypes.Py_INCREF(new_coro)
     coro_field.value = id(new_coro)
     _ctypes.Py_DECREF(old_coro)
+
+
+def get_greenlet_context(gr: greenlet.greenlet) -> Optional["contextvars.Context"]:
+    """Return the contextvars.Context that *gr* will execute in.
+
+    The result will be None for a greenlet that is currently executing
+    or has not yet been started. Raises RuntimeError if the loaded
+    greenlet doesn't have contextvars support (includes all releases
+    before 0.4.17, which was released September 2020).
+    """
+
+    global greenlet_context_c_offset
+    import ctypes
+    import contextvars
+
+    if greenlet_context_c_offset is None:
+        ctx = contextvars.copy_context()
+        scratch_greenlet = greenlet.greenlet(ctx.run)
+        # This activates `ctx` and then switches back, saving `ctx` in the
+        # greenlet object.
+        scratch_greenlet.switch(greenlet.getcurrent().switch)
+        try:
+            greenlet_context_c_offset = _aligned_ptr_offset_in_object(
+                scratch_greenlet, ctx
+            )
+        finally:
+            # Resume the greenlet so it properly unregisters its
+            # context, else we're likely to get an exception when we
+            # exit whatever Context.run() call surrounds
+            # set_greenlet_context().
+            scratch_greenlet.switch()
+        if greenlet_context_c_offset is None:  # pragma: no cover
+            raise RuntimeError(
+                "Couldn't determine C offset of greenlet.greenlet.<context>"
+            )
+
+    context_field = ctypes.c_size_t.from_address(id(gr) + greenlet_context_c_offset)
+    if context_field.value == 0:
+        return None
+
+    # This interprets the context field as a PyObject* and creates a new
+    # Python reference to that object.
+    ctx = ctypes.cast(context_field.value, ctypes.py_object).value
+    assert isinstance(ctx, contextvars.Context)
+    return ctx
+
+
+def set_greenlet_context(
+    gr: greenlet.greenlet, new_context: "contextvars.Context"
+) -> None:
+    old_context = get_greenlet_context(gr)
+    assert greenlet_context_c_offset is not None
+
+    # See comments in set_aio_task_coro().
+    import ctypes
+    import _ctypes
+
+    context_field = ctypes.c_size_t.from_address(id(gr) + greenlet_context_c_offset)
+    assert context_field.value == (0 if old_context is None else id(old_context))
+    _ctypes.Py_INCREF(new_context)
+    context_field.value = id(new_context)
+    if old_context is not None:
+        _ctypes.Py_DECREF(old_context)
+
+
+def fix_greenlet_context(gr: greenlet.greenlet) -> None:
+    # Determine the current context by storing it in the current greenlet.
+    scratch_child = greenlet.greenlet(get_greenlet_context)
+    current_context = scratch_child.switch(greenlet.getcurrent())
+
+    # Update *gr* so it will continue to use this context when we switch to it.
+    set_greenlet_context(gr, current_context)
 
 
 def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> None:

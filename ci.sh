@@ -135,12 +135,23 @@ else
     # Actual tests
     python -m pip install -r test-requirements.txt
 
+    if [ "$OLD_GREENLET" = "1" ]; then
+        # We run some tests under a greenlet version without the contextvars bug,
+        # to make sure we haven't regressed that
+        python -m pip install greenlet==0.4.16
+    fi
+
     mkdir empty
     cd empty
 
     INSTALLDIR=$(python -c "import os, greenback; print(os.path.dirname(greenback.__file__))")
     cp ../setup.cfg $INSTALLDIR
-    if pytest -W error -ra --junitxml=../test-results.xml ${INSTALLDIR} --cov="$INSTALLDIR" --cov-config=../.coveragerc$pypy_tag --verbose; then
+    # We have to copy .coveragerc into this directory, rather than passing
+    # --cov-config=../.coveragerc to pytest, because codecov.sh will run
+    # 'coverage xml' to generate the report that it uses, and that will only
+    # apply the ignore patterns in the current directory's .coveragerc.
+    cp ../.coveragerc$pypy_tag .coveragerc
+    if pytest -W error -ra --junitxml=../test-results.xml ${INSTALLDIR} --cov="$INSTALLDIR" --verbose; then
         PASSED=true
     else
         PASSED=false

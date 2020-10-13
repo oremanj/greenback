@@ -88,6 +88,35 @@ async def test_bestow(library):
         await_(anyio.sleep(0))
 
 
+async def test_contextvars(library):
+    if sys.version_info < (3, 7) and library != "trio":
+        pytest.skip("contextvars not supported on this version")
+
+    import contextvars
+
+    cv = contextvars.ContextVar("cv")
+
+    async def inner():
+        assert cv.get() == 20
+        await anyio.sleep(0)
+        cv.set(30)
+
+    def middle():
+        assert cv.get() == 10
+        cv.set(20)
+        await_(inner())
+        assert cv.get() == 30
+        cv.set(40)
+
+    cv.set(10)
+    await greenback.ensure_portal()
+    assert cv.get() == 10
+    middle()
+    assert cv.get() == 40
+    await anyio.sleep(0)
+    assert cv.get() == 40
+
+
 def test_misuse():
     with pytest.raises(sniffio.AsyncLibraryNotFoundError):
         greenback.await_(42)
@@ -103,6 +132,17 @@ def test_misuse():
         await greenback.ensure_portal()
         with pytest.raises(TypeError, match="int can't be used in 'await' expression"):
             greenback.await_(42)
+
+
+@pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython only")
+def test_find_ptr_in_object():
+    from greenback._impl import _aligned_ptr_offset_in_object
+
+    class A:
+        pass
+
+    assert _aligned_ptr_offset_in_object(A(), A) == object().__sizeof__() / 2
+    assert _aligned_ptr_offset_in_object(A(), "nope") is None
 
 
 @types.coroutine

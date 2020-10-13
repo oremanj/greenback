@@ -17,5 +17,6 @@ script:
   - ./ci.sh
 
 branches:
-  except:
-    - /^dependabot/.*/
+  only:
+    - master
+

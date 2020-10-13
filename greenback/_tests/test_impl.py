@@ -6,23 +6,13 @@ import sys
 import warnings
 
 import anyio
-import pytest  # type: ignore
-import sniffio  # type: ignore
+import pytest
+import sniffio
 import trio
 import trio.testing
 
 import greenback
 from .._impl import ensure_portal, bestow_portal, await_
-
-
-async def noop():
-    pass
-
-
-with warnings.catch_warnings():
-    # anyio hasn't been updated for the deprecations in Trio 0.15.0 yet
-    warnings.simplefilter("ignore")
-    anyio.run(noop, backend="trio")
 
 
 async def test_simple(library):
@@ -53,25 +43,25 @@ async def test_simple(library):
 
 
 async def test_complex(library):
-    server = await anyio.create_tcp_server()
+    listener = await anyio.create_tcp_listener(local_host="0.0.0.0")
 
     async def serve_echo_client(conn):  # pragma: no cover
         await ensure_portal()
-        for chunk in greenback.async_iter(conn.receive_chunks(1024)):
-            await_(conn.send_all(chunk))
+        for chunk in greenback.async_iter(conn):
+            await_(conn.send(chunk))
 
     async def serve_echo():  # pragma: no cover
         await ensure_portal()
         with greenback.async_context(anyio.create_task_group()) as tg:
-            for conn in greenback.async_iter(server.accept_connections()):
-                await_(tg.spawn(serve_echo_client, conn))
+            await_(listener.serve(serve_echo_client, tg))
 
     async with anyio.create_task_group() as tg:
         await tg.spawn(serve_echo)
         await ensure_portal()
-        conn = await_(anyio.connect_tcp("127.0.0.1", server.port))
-        await_(conn.send_all(b"hello"))
-        assert b"hello" == await_(conn.receive_some(1024))
+        port = listener.extra(anyio.abc.SocketAttribute.local_port)
+        conn = await_(anyio.connect_tcp("127.0.0.1", port))
+        await_(conn.send(b"hello"))
+        assert b"hello" == await_(conn.receive(1024))
         await_(tg.cancel_scope.cancel())
 
 

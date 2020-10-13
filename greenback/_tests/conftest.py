@@ -1,6 +1,6 @@
 import importlib
 import inspect
-import pytest  # type: ignore
+import pytest
 from functools import partial
 
 # Tests declared with a "library" parameter will run twice, once under asyncio

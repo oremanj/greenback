@@ -170,6 +170,9 @@ point such things are only vague ideas, which may well fail to work
 out. The author's hope is that `greenback`  gives you the tool to
 pursue whichever ones seem worthwhile to you.
 
+
+.. _performance:
+
 What's the performance impact?
 ------------------------------
 

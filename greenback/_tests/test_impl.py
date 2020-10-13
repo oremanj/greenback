@@ -15,10 +15,6 @@ import greenback
 from .._impl import ensure_portal, bestow_portal, await_
 
 
-async def noop():
-    pass
-
-
 async def test_simple(library):
     ticks = 0
 

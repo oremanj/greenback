@@ -11,6 +11,7 @@ from typing import (
     Awaitable,
     Callable,
     Coroutine,
+    Dict,
     Generator,
     MutableSet,
     Optional,
@@ -486,6 +487,10 @@ class AutoPortalInstrument(Instrument):
         self.refs = 0
 
     def task_spawned(self, task: "trio.lowlevel.Task") -> None:
+        if task.parent_nursery is None:
+            # We shouldn't see the init task (since this instrument is
+            # added only after run() starts up) but don't crash if we do.
+            return
         parent = task.parent_nursery.parent_task
         depth = self.tasks.get(parent)
         if depth is None:
@@ -506,7 +511,7 @@ instrument_holder = None
 
 
 async def with_portal_run_tree(
-    async_fn: Callable[..., T], *args: Any, **kwds: Any
+    async_fn: Callable[..., Awaitable[T]], *args: Any, **kwds: Any
 ) -> T:
     """Execute ``await async_fn(*args, **kwds)`` in a context that allows use
     of :func:`greenback.await_` both in *async_fn* itself and in any tasks
@@ -532,6 +537,7 @@ async def with_portal_run_tree(
     """
     try:
         import trio
+
         try:
             from trio import lowlevel as trio_lowlevel
         except ImportError:  # pragma: no cover

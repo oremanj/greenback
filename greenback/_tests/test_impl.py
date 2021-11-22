@@ -6,7 +6,6 @@ import sys
 import warnings
 
 import anyio
-import asyncio
 import greenlet  # type: ignore
 import pytest
 import sniffio
@@ -190,7 +189,7 @@ async def test_contextvars(library):
 
 def test_misuse():
     with pytest.raises(RuntimeError, match="only supported.*running under Trio"):
-        asyncio.run(greenback.with_portal_run_tree(anyio.sleep, 1))
+        anyio.run(greenback.with_portal_run_tree, anyio.sleep, 1, backend="asyncio")
 
     with pytest.raises(sniffio.AsyncLibraryNotFoundError):
         greenback.await_(42)

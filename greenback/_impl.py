@@ -54,8 +54,7 @@ aio_task_coro_c_offset: Optional[int] = None
 # to get the behavior we want; we forbid it in our setup.py dependencies.)
 # See https://github.com/python-greenlet/greenlet/issues/196 for details.
 greenlet_needs_context_fixup: bool = (
-    sys.implementation.name == "cpython"
-    and contextvars is not None
+    contextvars is not None
     and getattr(greenlet, "GREENLET_USE_CONTEXT_VARS", False)
 )
 
@@ -404,7 +403,7 @@ async def ensure_portal() -> None:
 
 async def with_portal_run(
     async_fn: Callable[..., Awaitable[T]], *args: Any, **kwds: Any
-) -> T:
+) -> "T":
     """Execute ``await async_fn(*args, **kwds)`` in a context that is able
     to use :func:`greenback.await_`.
 

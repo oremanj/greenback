@@ -12,7 +12,7 @@ from typing import (
     TypeVar,
     cast,
 )
-from ._impl import await_
+from ._impl import await_, bestow_portal
 
 T = TypeVar("T")
 
@@ -107,3 +107,30 @@ class async_generator(async_iter[T]):
 
     def close(self) -> None:
         return await_(cast(AsyncGenerator[T, Any], self._it).aclose())
+
+
+try:
+    from trio.abc import Instrument
+    from trio.lowlevel import Task
+except ImportError:
+    Instrument = object
+    Task = Any
+
+
+class AutoPortalInstrument(Instrument):
+    """Use as a Trio instrument to make a greenback portal implicitly
+    available in every task.
+
+    Example uses::
+
+        # Start a Trio run in which every task will be able to use greenback.await_()
+        trio.run(main, instruments=[greenback.AutoPortalInstrument()])
+
+        # Make all tasks started after this point in the current Trio run
+        # able to use greenback.await_(), leaving tasks already running unaffected
+        trio.lowlevel.add_instrument(greenback.AutoPortalInstrument())
+
+    """
+
+    def task_spawned(self, task: Task) -> None:
+        bestow_portal(task)

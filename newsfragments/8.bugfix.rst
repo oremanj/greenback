@@ -1,0 +1,4 @@
+Add support for newer (1.0+) versions of greenlet, which expose a ``gr_context``
+attribute directly, allowing us to remove the hacks that were added to support
+0.4.17. greenlet 0.4.17 is no longer supported, but earlier (contextvar-naive)
+versions should still work.

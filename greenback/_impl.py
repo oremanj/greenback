@@ -12,7 +12,7 @@ from typing import (
     Callable,
     Coroutine,
     Generator,
-    MutableMapping,
+    MutableSet,
     Optional,
     TypeVar,
     Union,
@@ -34,13 +34,11 @@ except ImportError:  # pragma: no cover
 
 T = TypeVar("T")
 
-# Maps each task (trio.lowlevel.Task or asyncio.Task) that has called
-# ensure_portal() to the greenlet running its coroutine shim. Note
-# that this will be the same greenlet for every task unless greenlets
-# are being used for purposes other than greenback in this program.
-# We use a mapping by task rather than a contextvar because we don't
-# want the portal to be inherited by child tasks.
-task_portal: MutableMapping[object, greenlet.greenlet] = weakref.WeakKeyDictionary()
+# Set of tasks (trio.lowlevel.Task or asyncio.Task) that have a "greenback
+# portal" installed, via any of the *_portal() functions. When running,
+# these tasks can send event loop traps to greenlet.getcurrent().parent
+# in order to yield them to the event loop.
+task_has_portal: MutableSet[object] = weakref.WeakSet()
 
 # The offset of asyncio.Task._coro in the Task object memory layout, if
 # asyncio.Task is implemented in C (which it generally is on CPython 3.6+).
@@ -323,15 +321,9 @@ def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> Non
     with one exception: if you pass the currently running task, then
     the portal will not become usable until after the task yields
     control to the event loop.
-
-    If your program uses greenlets for non-`greenback` purposes, then you must
-    call :func:`bestow_portal` from the same greenlet that the *task* will run in.
-    (This is rare; generally the entire async event loop runs in one greenlet,
-    so the distinction doesn't matter.)
-
     """
 
-    if task in task_portal:
+    if task in task_has_portal:
         # This task already has a greenback shim; nothing to do.
         return
 
@@ -361,8 +353,9 @@ def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> Non
     # original task coroutine
     commit()
 
-    # Make sure calls to greenback.await_() in this task know where to find us
-    task_portal[task] = greenlet.getcurrent()
+    # Enable greenback.await_() in this task, since all of its future steps
+    # will run under the greenback shim
+    task_has_portal.add(task)
 
 
 async def ensure_portal() -> None:
@@ -390,7 +383,7 @@ async def ensure_portal() -> None:
     """
 
     this_task = current_task()
-    if this_task not in task_portal:
+    if this_task not in task_has_portal:
         bestow_portal(this_task)
 
     # Execute a checkpoint so that we're now running inside the shim coroutine.
@@ -398,6 +391,16 @@ async def ensure_portal() -> None:
     # without any further checkpoints.
     library = sniffio.current_async_library()
     await sys.modules[library].sleep(0)  # type: ignore
+
+
+def has_portal(
+    task: Optional[Union["trio.lowlevel.Task", "asyncio.Task[Any]"]] = None
+) -> bool:
+    """Return true if the given *task* is currently able to use
+    :func:`greenback.await_`, false otherwise. If no *task* is
+    specified, query the currently executing task.
+    """
+    return current_task() in task_has_portal
 
 
 async def with_portal_run(
@@ -424,16 +427,16 @@ async def with_portal_run(
     """
 
     this_task = current_task()
-    if this_task in task_portal:
+    if this_task in task_has_portal:
         return await async_fn(*args, **kwds)
     shim_coro = _greenback_shim(async_fn(*args, **kwds))  # type: ignore
     assert shim_coro.send(None) == "ready"
-    task_portal[this_task] = greenlet.getcurrent()
+    task_has_portal.add(this_task)
     try:
         res: T = await shim_coro
         return res
     finally:
-        del task_portal[this_task]
+        task_has_portal.remove(this_task)
 
 
 async def with_portal_run_sync(sync_fn: Callable[..., T], *args: Any, **kwds: Any) -> T:
@@ -455,14 +458,123 @@ async def with_portal_run_sync(sync_fn: Callable[..., T], *args: Any, **kwds: An
     """
 
     this_task = current_task()
-    if this_task in task_portal:
+    if this_task in task_has_portal:
         return sync_fn(*args, **kwds)
-    task_portal[this_task] = greenlet.getcurrent()
+    task_has_portal.add(this_task)
     try:
         res: T = await _greenback_shim_sync(partial(sync_fn, *args, **kwds))
         return res
     finally:
-        del task_portal[this_task]
+        task_has_portal.remove(this_task)
+
+
+if TYPE_CHECKING:
+    from trio.abc import Instrument
+else:
+    Instrument = object
+
+
+class AutoPortalInstrument(Instrument):
+    def __init__(self) -> None:
+        # {task: nursery depth at which we'll auto-portalize new children}
+        # Rationale for tracking the depth: in
+        #     async with trio.open_nursery() as outer:
+        #         await with_portal_run_tree(something)
+        # we only want to portalize the tasks under `something`, not children
+        # spawned into `outer`.
+        self.tasks: Dict["trio.lowlevel.Task", int] = {}
+        self.refs = 0
+
+    def task_spawned(self, task: "trio.lowlevel.Task") -> None:
+        parent = task.parent_nursery.parent_task
+        depth = self.tasks.get(parent)
+        if depth is None:
+            return
+        if parent.child_nurseries.index(task.parent_nursery) >= depth:
+            bestow_portal(task)
+            self.tasks[task] = 0
+
+    def task_exited(self, task: "trio.lowlevel.Task") -> None:
+        self.tasks.pop(task, None)
+
+
+# We can't initialize this at global scope because we don't want to import Trio
+# if we're being used in an asyncio program. It will be initialized on the first
+# call to with_portal_run_tree().
+instrument_holder: "Optional[trio.lowlevel.RunVar[Optional[AutoPortalInstrument]]]"
+instrument_holder = None
+
+
+async def with_portal_run_tree(
+    async_fn: Callable[..., T], *args: Any, **kwds: Any
+) -> T:
+    """Execute ``await async_fn(*args, **kwds)`` in a context that allows use
+    of :func:`greenback.await_` both in *async_fn* itself and in any tasks
+    that are spawned into child nurseries of *async_fn*, recursively.
+
+    You can use this to create an entire Trio run (except system
+    tasks) that runs with :func:`greenback.await_` available: say
+    ``trio.run(with_portal_run_tree, main)``.
+
+    This function does *not* add any cancellation point or schedule point
+    beyond those that already exist inside *async_fn*.
+
+    Availability: Trio only.
+
+    .. note:: The automatic "portalization" of child tasks is
+       implemented using a Trio `instrument <trio.abc.Instrument>`,
+       which has a small performance impact on task spawning the
+       entire Trio run. A single instrument is used even if you have
+       multiple :func:`with_portal_run_tree` calls running
+       simultaneously, and the instrument will be removed as soon as
+       all such calls have completed.
+
+    """
+    try:
+        import trio
+        try:
+            from trio import lowlevel as trio_lowlevel
+        except ImportError:  # pragma: no cover
+            if not TYPE_CHECKING:
+                from trio import hazmat as trio_hazmat
+
+        this_task = trio_lowlevel.current_task()
+    except Exception:
+        raise RuntimeError("This function is only supported when running under Trio")
+
+    global instrument_holder
+    if instrument_holder is None:
+        instrument_holder = trio_lowlevel.RunVar("greenback_instrument", default=None)
+    instrument = instrument_holder.get()
+    if instrument is None:
+        # We're the only with_portal_run_tree() in this Trio run at the moment -->
+        # set up the instrument and store it in the RunVar for other calls to find
+        instrument = AutoPortalInstrument()
+        trio_lowlevel.add_instrument(instrument)
+        instrument_holder.set(instrument)
+    elif this_task in instrument.tasks:
+        # We're already inside another call to with_portal_run_tree(), so nothing
+        # more needs to be done
+        assert has_portal()
+        return await async_fn(*args, **kwds)
+
+    # Store our current nursery depth. This allows the instrument to
+    # distinguish new tasks spawned in child nurseries of async_fn()
+    # (which should get auto-portalized) from new tasks spawned in
+    # nurseries that enclose this call (which shouldn't, even if they
+    # have the same parent task).
+    instrument.tasks[this_task] = len(this_task.child_nurseries)
+    instrument.refs += 1
+    try:
+        return await with_portal_run(async_fn, *args, **kwds)
+    finally:
+        del instrument.tasks[this_task]
+        instrument.refs -= 1
+        if instrument.refs == 0:
+            # There are no more with_portal_run_tree() calls executing
+            # in this run, so clean up the instrument.
+            instrument_holder.set(None)
+            trio_lowlevel.remove_instrument(instrument)
 
 
 async def adapt_awaitable(aw: Awaitable[T]) -> T:
@@ -480,12 +592,11 @@ def await_(aw: Awaitable[T]) -> T:
     """
     try:
         task = current_task()
-        try:
-            gr = task_portal[task]
-        except KeyError:
+        if task not in task_has_portal:
             raise RuntimeError(
                 "you must 'await greenback.ensure_portal()' in this task first"
             ) from None
+        gr = greenlet.getcurrent().parent
     except BaseException:
         if isinstance(aw, collections.abc.Coroutine):
             # Suppress the "coroutine was never awaited" warning

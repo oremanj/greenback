@@ -6,6 +6,7 @@ import sys
 import warnings
 
 import anyio
+import asyncio
 import greenlet  # type: ignore
 import pytest
 import sniffio
@@ -13,8 +14,7 @@ import trio
 import trio.testing
 
 import greenback
-from .._impl import ensure_portal, bestow_portal, with_portal_run, with_portal_run_sync
-from .._impl import await_
+from .._impl import ensure_portal, has_portal, await_
 
 
 async def test_simple(library):
@@ -22,12 +22,14 @@ async def test_simple(library):
 
     async def one_task(*, have_portal=False):
         if not have_portal:
+            assert not has_portal()
             with pytest.raises(
                 RuntimeError, match="you must 'await greenback.ensure_portal"
             ):
                 await_(anyio.sleep(0))
             await ensure_portal()
             await ensure_portal()
+        assert has_portal()
         for _ in range(100):
             nonlocal ticks
             await_(anyio.sleep(0))
@@ -82,6 +84,43 @@ async def test_with_portal_run(library):
         )
         with pytest.raises(RuntimeError, match="greenback.ensure_portal"):
             await_(anyio.sleep(0))
+
+
+async def test_with_portal_run_tree():
+    async def expect_no_portal():
+        await trio.sleep(0.5)
+        assert not has_portal()
+
+    async def expect_portal():
+        assert has_portal()
+        await_(trio.sleep(0.5))
+
+    async def example_child(depth):
+        assert has_portal()
+        await_(trio.sleep(0))
+        if depth == 0:
+            return
+        async with trio.open_nursery() as nursery:
+            nursery.start_soon(expect_portal)
+            nursery.start_soon(greenback.with_portal_run_tree, example_child, depth - 1)
+            nursery.start_soon(example_child, depth - 1)
+            await_(greenback.with_portal_run_tree(example_child, depth - 1))
+            await trio.sleep(1)
+
+    async with trio.open_nursery() as outer:
+        async with trio.open_nursery() as middle:
+            assert not has_portal()
+            outer.start_soon(expect_no_portal)
+            middle.start_soon(expect_no_portal)
+            await greenback.with_portal_run_tree(example_child, 3)
+            assert not has_portal()
+            outer.start_soon(expect_no_portal)
+            middle.start_soon(expect_no_portal)
+            middle.start_soon(greenback.with_portal_run_tree, example_child, 3)
+            await trio.sleep(0.5)
+            middle.start_soon(greenback.with_portal_run_tree, example_child, 3)
+            await trio.sleep(0.5)
+            assert not has_portal()
 
 
 async def test_bestow(library):
@@ -150,6 +189,9 @@ async def test_contextvars(library):
 
 
 def test_misuse():
+    with pytest.raises(RuntimeError, match="only supported.*running under Trio"):
+        asyncio.run(greenback.with_portal_run_tree(anyio.sleep, 1))
+
     with pytest.raises(sniffio.AsyncLibraryNotFoundError):
         greenback.await_(42)
 
@@ -215,7 +257,7 @@ async def test_portal_map_does_not_leak(library):
     for _ in range(4):
         gc.collect()
 
-    assert not greenback._impl.task_portal
+    assert not greenback._impl.task_has_portal
 
 
 async def test_awaitable(library):

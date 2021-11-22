@@ -14,11 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python:
-          - '3.6'
-          - '3.7'
-          - '3.8'
-          - '3.9.0-rc.2'
+        python: ['3.6', '3.7', '3.8', '3.9', '3.10']
         arch: ['x86', 'x64']
         extra_name: ['']
         old_greenlet: ['0']
@@ -27,7 +23,7 @@ jobs:
             arch: 'x86'
             old_greenlet: '1'
             extra_name: ', older greenlet package'
-          - python: '3.9.0-rc.2'
+          - python: '3.9'  # NB: old greenlet not supported on >=3.10
             arch: 'x64'
             old_greenlet: '1'
             extra_name: ', older greenlet package'
@@ -37,7 +33,15 @@ jobs:
       - name: Setup python
         uses: actions/setup-python@v2
         with:
-          python-version: '${{ matrix.python }}'
+          # This allows the matrix to specify just the major.minor version while still
+          # expanding it to get the latest patch version including alpha releases.
+          # This avoids the need to update for each new alpha, beta, release candidate,
+          # and then finally an actual release version.  actions/setup-python doesn't
+          # support this for PyPy presently so we get no help there.
+          #
+          # CPython -> 3.9.0-alpha - 3.9.X
+          # PyPy    -> pypy-3.7
+          python-version: ${{ fromJSON(format('["{0}", "{1}"]', format('{0}.0-alpha - {0}.X', matrix.python), matrix.python))[startsWith(matrix.python, 'pypy')] }}
           architecture: '${{ matrix.arch }}'
       - name: Run tests
         run: ./ci.sh
@@ -47,50 +51,59 @@ jobs:
           # Should match 'name:' up above
           JOB_NAME: 'Windows (${{ matrix.python }}, ${{ matrix.arch }}${{ matrix.extra_name }})'
 
-  Linux:
-    name: 'Linux (${{ matrix.python }}${{ matrix.extra_name }})'
+  Ubuntu:
+    name: 'Ubuntu (${{ matrix.python }}${{ matrix.extra_name }})'
     timeout-minutes: 10
     runs-on: 'ubuntu-latest'
     strategy:
       fail-fast: false
       matrix:
-        python:
-          - '3.6'
-          - '3.7'
-          - '3.8'
-          - '3.9.0-rc.2'
+        python: ['pypy-3.6', 'pypy-3.7', 'pypy-3.8', '3.6', '3.7', '3.8', '3.9', '3.10', '3.8-dev', '3.9-dev', '3.10-dev']
         check_docs: ['0']
         check_lint: ['0']
         extra_name: ['']
         old_greenlet: ['0']
         include:
-          - python: '3.8'
+          - python: '3.9'
             check_docs: '1'
             extra_name: ', check docs'
-          - python: '3.8'
+          - python: '3.9'
             check_lint: '1'
             extra_name: ', formatting and linting'
           - python: '3.7'
             old_greenlet: '1'
             extra_name: ', older greenlet package'
-          - python: '3.9.0-rc.2'
+          - python: '3.9'  # NB: old greenlet not supported on >=3.10
             old_greenlet: '1'
             extra_name: ', older greenlet package'
+          - python: '3.7'  # <- not actually used
+            pypy_nightly_branch: 'py3.7'
+            extra_name: ', pypy 3.7 nightly'
+          - python: '3.8'  # <- not actually used
+            pypy_nightly_branch: 'py3.8'
+            extra_name: ', pypy 3.8 nightly'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Setup python
         uses: actions/setup-python@v2
+        if: "!endsWith(matrix.python, '-dev')"
+        with:
+          python-version: ${{ fromJSON(format('["{0}", "{1}"]', format('{0}.0-alpha - {0}.X', matrix.python), matrix.python))[startsWith(matrix.python, 'pypy')] }}
+      - name: Setup python (dev)
+        uses: deadsnakes/action@v2.0.2
+        if: endsWith(matrix.python, '-dev')
         with:
           python-version: '${{ matrix.python }}'
       - name: Run tests
         run: ./ci.sh
         env:
+          PYPY_NIGHTLY_BRANCH: '${{ matrix.pypy_nightly_branch }}'
           CHECK_DOCS: '${{ matrix.check_docs }}'
           CHECK_LINT: '${{ matrix.check_lint }}'
           OLD_GREENLET: '${{ matrix.old_greenlet }}'
           # Should match 'name:' up above
-          JOB_NAME: 'Linux (${{ matrix.python }}${{ matrix.extra_name }})'
+          JOB_NAME: 'Ubuntu (${{ matrix.python }}${{ matrix.extra_name }})'
 
   macOS:
     name: 'macOS (${{ matrix.python }})'
@@ -99,18 +112,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python:
-          - '3.6'
-          - '3.7'
-          - '3.8'
-          - '3.9.0-rc.2'
+        python: ['3.6', '3.7', '3.8', '3.9', '3.10']
     steps:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Setup python
         uses: actions/setup-python@v2
         with:
-          python-version: '${{ matrix.python }}'
+          python-version: ${{ fromJSON(format('["{0}", "{1}"]', format('{0}.0-alpha - {0}.X', matrix.python), matrix.python))[startsWith(matrix.python, 'pypy')] }}
       - name: Run tests
         run: ./ci.sh
         env:

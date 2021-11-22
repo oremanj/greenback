@@ -34,50 +34,7 @@ function curl-harder() {
 # Bootstrap python environment, if necessary
 ################################################################
 
-### Azure pipelines + Windows ###
-
-# On azure pipeline's windows VMs, to get reasonable performance, we need to
-# jump through hoops to avoid touching the C:\ drive as much as possible.
-if [ "$AGENT_OS" = "Windows_NT" ]; then
-    # By default temp and cache directories are on C:\. Fix that.
-    export TEMP="${AGENT_TEMPDIRECTORY}"
-    export TMP="${AGENT_TEMPDIRECTORY}"
-    export TMPDIR="${AGENT_TEMPDIRECTORY}"
-    export PIP_CACHE_DIR="${AGENT_TEMPDIRECTORY}\\pip-cache"
-
-    # Download and install Python from scratch onto D:\, instead of using the
-    # pre-installed versions that azure pipelines provides on C:\.
-    # Also use -DirectDownload to stop nuget from caching things on C:\.
-    nuget install "${PYTHON_PKG}" -Version "${PYTHON_VERSION}" \
-          -OutputDirectory "$PWD/pyinstall" -ExcludeVersion \
-          -Source "https://api.nuget.org/v3/index.json" \
-          -Verbosity detailed -DirectDownload -NonInteractive
-
-    pydir="$PWD/pyinstall/${PYTHON_PKG}"
-    export PATH="${pydir}/tools:${pydir}/tools/scripts:$PATH"
-
-    # Fix an issue with the nuget python 3.5 packages
-    # https://github.com/python-trio/trio/pull/827#issuecomment-457433940
-    rm -f "${pydir}/tools/pyvenv.cfg" || true
-fi
-
-### Travis + macOS ###
-
-if [ "$TRAVIS_OS_NAME" = "osx" ]; then
-    JOB_NAME="osx_${MACPYTHON}"
-    curl-harder -o macpython.pkg https://www.python.org/ftp/python/${MACPYTHON}/python-${MACPYTHON}-macosx10.6.pkg
-    sudo installer -pkg macpython.pkg -target /
-    ls /Library/Frameworks/Python.framework/Versions/*/bin/
-    PYTHON_EXE=/Library/Frameworks/Python.framework/Versions/*/bin/python3
-    # The pip in older MacPython releases doesn't support a new enough TLS
-    curl-harder -o get-pip.py https://bootstrap.pypa.io/get-pip.py
-    sudo $PYTHON_EXE get-pip.py
-    sudo $PYTHON_EXE -m pip install virtualenv
-    $PYTHON_EXE -m virtualenv testenv
-    source testenv/bin/activate
-fi
-
-### PyPy nightly (currently on Travis) ###
+### PyPy nightly ###
 
 if [ "$PYPY_NIGHTLY_BRANCH" != "" ]; then
     JOB_NAME="pypy_nightly_${PYPY_NIGHTLY_BRANCH}"

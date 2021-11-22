@@ -403,7 +403,7 @@ async def ensure_portal() -> None:
 
 async def with_portal_run(
     async_fn: Callable[..., Awaitable[T]], *args: Any, **kwds: Any
-) -> "T":
+) -> T:
     """Execute ``await async_fn(*args, **kwds)`` in a context that is able
     to use :func:`greenback.await_`.
 

@@ -31,10 +31,10 @@ a greenback *portal* for that task to use. You may choose between:
   simpler and will be a bit faster (probably only noticeable if the
   function you're running is very short).
 
-.. autofunction:: ensure_portal
-.. autofunction:: bestow_portal
-.. autofunction:: with_portal_run
-.. autofunction:: with_portal_run_sync
+.. autofunction:: ensure_portal()
+.. autofunction:: bestow_portal(task)
+.. autofunction:: with_portal_run(async_fn, *args, **kwds)
+.. autofunction:: with_portal_run_sync(sync_fn, *args, **kwds)
 
 
 Using the portal

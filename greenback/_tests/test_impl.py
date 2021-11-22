@@ -108,6 +108,12 @@ async def test_with_portal_run_tree():
 
     async with trio.open_nursery() as outer:
         async with trio.open_nursery() as middle:
+            @outer.start_soon
+            async def check_no_leakage():
+                await trio.sleep(0.5)
+                outer.start_soon(expect_no_portal)
+                middle.start_soon(expect_no_portal)
+
             assert not has_portal()
             outer.start_soon(expect_no_portal)
             middle.start_soon(expect_no_portal)

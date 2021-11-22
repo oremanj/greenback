@@ -54,8 +54,7 @@ aio_task_coro_c_offset: Optional[int] = None
 # to get the behavior we want; we forbid it in our setup.py dependencies.)
 # See https://github.com/python-greenlet/greenlet/issues/196 for details.
 greenlet_needs_context_fixup: bool = (
-    contextvars is not None
-    and getattr(greenlet, "GREENLET_USE_CONTEXT_VARS", False)
+    contextvars is not None and getattr(greenlet, "GREENLET_USE_CONTEXT_VARS", False)
 )
 
 

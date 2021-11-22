@@ -47,22 +47,23 @@ async def test_complex(library):
     listener = await anyio.create_tcp_listener(local_host="0.0.0.0")
 
     async def serve_echo_client(conn):  # pragma: no cover
-        await ensure_portal()
-        for chunk in greenback.async_iter(conn):
-            await_(conn.send(chunk))
+        async with conn:
+            await ensure_portal()
+            for chunk in greenback.async_iter(conn):
+                await_(conn.send(chunk))
 
     async def serve_echo():  # pragma: no cover
         await ensure_portal()
         with greenback.async_context(anyio.create_task_group()) as tg:
             await_(listener.serve(serve_echo_client, tg))
 
-    async with anyio.create_task_group() as tg:
+    async with listener, anyio.create_task_group() as tg:
         tg.start_soon(serve_echo)
         await ensure_portal()
         port = listener.extra(anyio.abc.SocketAttribute.local_port)
-        conn = await_(anyio.connect_tcp("127.0.0.1", port))
-        await_(conn.send(b"hello"))
-        assert b"hello" == await_(conn.receive(1024))
+        async with await_(anyio.connect_tcp("127.0.0.1", port)) as conn:
+            await_(conn.send(b"hello"))
+            assert b"hello" == await_(conn.receive(1024))
         tg.cancel_scope.cancel()
 
 
@@ -123,12 +124,15 @@ async def test_contextvars(library):
         cv.set(20)
         await_(inner())
         assert cv.get() == 30
-        cv.set(50)
-        nctx = contextvars.copy_context()
-        nctx.run(cv.set, 20)
-        nctx.run(await_, inner())
-        assert nctx[cv] == 30
-        assert cv.get() == 50
+        if sys.version_info >= (3, 7):
+            # greenlet is not aware of the backported contextvars,
+            # so can't support Context.run() correctly before 3.7
+            cv.set(50)
+            nctx = contextvars.copy_context()
+            nctx.run(cv.set, 20)
+            nctx.run(await_, inner())
+            assert nctx[cv] == 30
+            assert cv.get() == 50
         cv.set(40)
 
     cv.set(10)

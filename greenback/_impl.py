@@ -47,19 +47,17 @@ task_portal: MutableMapping[object, greenlet.greenlet] = weakref.WeakKeyDictiona
 # This is determined dynamically when it is first needed.
 aio_task_coro_c_offset: Optional[int] = None
 
-# If True, we're using a buggy version of greenlet which will clobber our
-# contextvars context when we switch greenlets.
+# If True, we need to configure greenlet to preserve our
+# contextvars context when we switch greenlets. (Older versions
+# of greenlet are context-naive and do what we want by default.
+# greenlet v0.4.17 tried to be context-aware but isn't configurable
+# to get the behavior we want; we forbid it in our setup.py dependencies.)
 # See https://github.com/python-greenlet/greenlet/issues/196 for details.
 greenlet_needs_context_fixup: bool = (
     sys.implementation.name == "cpython"
     and contextvars is not None
     and getattr(greenlet, "GREENLET_USE_CONTEXT_VARS", False)
 )
-
-# The offset of greenlet.context in the greenlet object memory layout.
-# Only relevant if greenlet_needs_context_fixup.
-# This is determined dynamically when it is first needed.
-greenlet_context_c_offset: Optional[int] = None
 
 
 async def greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Any:
@@ -93,9 +91,14 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
     # has a hard time raising StopIteration, because it's a generator,
     # and unrolling it into a non-generator iterable makes it slower.
     # So we'll accept a bit of code duplication.
+    parent_greenlet = greenlet.getcurrent()
 
     # The greenlet in which each send() or throw() call will occur.
     child_greenlet: Optional[greenlet.greenlet] = None
+
+    # The contextvars.Context that we have most recently seen as active
+    # for this task and propagated to child_greenlet
+    curr_ctx: Optional[contextvars.Context] = None
 
     # The next thing we plan to yield to the event loop. (The first yield
     # goes to ensure_portal() rather than to the event loop, so we use a
@@ -122,13 +125,33 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
                 # Resume the previous send() or throw() call, which is currently
                 # at a simulated yield point in a greenback.await_() call.
                 switch_arg = next_send
-            if greenlet_needs_context_fixup:
-                fix_greenlet_context(child_greenlet)
+
+            if (
+                greenlet_needs_context_fixup
+                and parent_greenlet.gr_context is not curr_ctx
+                and child_greenlet.gr_context is curr_ctx
+            ):
+                # Make sure the child greenlet's contextvars context
+                # is the same as our own, even if our own context
+                # changes (such as via trio.Task.context assignment),
+                # unless the child greenlet appears to have changed
+                # its context privately through a call to Context.run().
+                #
+                # Note 'parent_greenlet.gr_context' here is just a
+                # portable way of getting the current contextvars
+                # context, which is not exposed by the contextvars
+                # module directly (copy_context() returns a copy, not
+                # a new reference to the original).  Upon initial
+                # creation of child_greenlet, curr_ctx and
+                # child_greenlet.gr_context will both be None, so this
+                # condition works for that case too.
+                child_greenlet.gr_context = curr_ctx = parent_greenlet.gr_context
+
             next_yield = child_greenlet.switch(switch_arg)
             if child_greenlet.dead:
                 # The send() or throw() call completed so we need to
                 # create a new greenlet for the next one.
-                child_greenlet = None
+                child_greenlet = curr_ctx = None
         except StopIteration as ex:
             # The underlying coroutine completed, so we forward its return value.
             return ex.value
@@ -149,6 +172,9 @@ def _greenback_shim_sync(target: Callable[[], Any]) -> Generator[Any, Any, Any]:
     the latter.
     """
 
+    parent_greenlet = greenlet.getcurrent()
+    curr_ctx = None
+
     # The greenlet in which we run target().
     child_greenlet = greenlet.greenlet(target)
 
@@ -161,8 +187,27 @@ def _greenback_shim_sync(target: Callable[[], Any]) -> Generator[Any, Any, Any]:
     next_send: Optional[outcome.Outcome[Any]] = None
 
     while True:
-        if greenlet_needs_context_fixup:
-            fix_greenlet_context(child_greenlet)
+        if (
+            greenlet_needs_context_fixup
+            and parent_greenlet.gr_context is not curr_ctx
+            and child_greenlet.gr_context is curr_ctx
+        ):
+            # Make sure the child greenlet's contextvars context
+            # is the same as our own, even if our own context
+            # changes (such as via trio.Task.context assignment),
+            # unless the child greenlet appears to have changed
+            # its context privately through a call to Context.run().
+            #
+            # Note 'parent_greenlet.gr_context' here is just a
+            # portable way of getting the current contextvars
+            # context, which is not exposed by the contextvars
+            # module directly (copy_context() returns a copy, not
+            # a new reference to the original).  Upon initial
+            # creation of child_greenlet, curr_ctx and
+            # child_greenlet.gr_context will both be None, so this
+            # condition works for that case too.
+            child_greenlet.gr_context = curr_ctx = parent_greenlet.gr_context
+
         if next_send is None:
             next_yield = child_greenlet.switch()
         else:
@@ -271,78 +316,6 @@ def set_aio_task_coro(
     _ctypes.Py_INCREF(new_coro)
     coro_field.value = id(new_coro)
     _ctypes.Py_DECREF(old_coro)
-
-
-def get_greenlet_context(gr: greenlet.greenlet) -> Optional["contextvars.Context"]:
-    """Return the contextvars.Context that *gr* will execute in.
-
-    The result will be None for a greenlet that is currently executing
-    or has not yet been started. Raises RuntimeError if the loaded
-    greenlet doesn't have contextvars support (includes all releases
-    before 0.4.17, which was released September 2020).
-    """
-
-    global greenlet_context_c_offset
-    import ctypes
-    import contextvars
-
-    if greenlet_context_c_offset is None:
-        ctx = contextvars.copy_context()
-        scratch_greenlet = greenlet.greenlet(ctx.run)
-        # This activates `ctx` and then switches back, saving `ctx` in the
-        # greenlet object.
-        scratch_greenlet.switch(greenlet.getcurrent().switch)
-        try:
-            greenlet_context_c_offset = _aligned_ptr_offset_in_object(
-                scratch_greenlet, ctx
-            )
-        finally:
-            # Resume the greenlet so it properly unregisters its
-            # context, else we're likely to get an exception when we
-            # exit whatever Context.run() call surrounds
-            # set_greenlet_context().
-            scratch_greenlet.switch()
-        if greenlet_context_c_offset is None:  # pragma: no cover
-            raise RuntimeError(
-                "Couldn't determine C offset of greenlet.greenlet.<context>"
-            )
-
-    context_field = ctypes.c_size_t.from_address(id(gr) + greenlet_context_c_offset)
-    if context_field.value == 0:
-        return None
-
-    # This interprets the context field as a PyObject* and creates a new
-    # Python reference to that object.
-    ctx = ctypes.cast(context_field.value, ctypes.py_object).value
-    assert isinstance(ctx, contextvars.Context)
-    return ctx
-
-
-def set_greenlet_context(
-    gr: greenlet.greenlet, new_context: "contextvars.Context"
-) -> None:
-    old_context = get_greenlet_context(gr)
-    assert greenlet_context_c_offset is not None
-
-    # See comments in set_aio_task_coro().
-    import ctypes
-    import _ctypes
-
-    context_field = ctypes.c_size_t.from_address(id(gr) + greenlet_context_c_offset)
-    assert context_field.value == (0 if old_context is None else id(old_context))
-    _ctypes.Py_INCREF(new_context)
-    context_field.value = id(new_context)
-    if old_context is not None:
-        _ctypes.Py_DECREF(old_context)
-
-
-def fix_greenlet_context(gr: greenlet.greenlet) -> None:
-    # Determine the current context by storing it in the current greenlet.
-    scratch_child = greenlet.greenlet(get_greenlet_context)
-    current_context = scratch_child.switch(greenlet.getcurrent())
-
-    # Update *gr* so it will continue to use this context when we switch to it.
-    set_greenlet_context(gr, current_context)
 
 
 def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> None:

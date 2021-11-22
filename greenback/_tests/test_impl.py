@@ -6,6 +6,7 @@ import sys
 import warnings
 
 import anyio
+import greenlet
 import pytest
 import sniffio
 import trio
@@ -124,9 +125,14 @@ async def test_contextvars(library):
         cv.set(20)
         await_(inner())
         assert cv.get() == 30
-        if sys.version_info >= (3, 7):
+        if (
+            sys.version_info >= (3, 7)
+            and getattr(greenlet, "GREENLET_USE_CONTEXT_VARS", False)
+        ):
             # greenlet is not aware of the backported contextvars,
-            # so can't support Context.run() correctly before 3.7
+            # so can't support Context.run() correctly before 3.7.
+            # greenlet that isn't contextvars-aware hangs if the
+            # inner greenlet uses Context.run() -- not our fault.
             cv.set(50)
             nctx = contextvars.copy_context()
             nctx.run(cv.set, 20)

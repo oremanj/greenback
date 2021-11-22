@@ -34,9 +34,9 @@ async def test_simple(library):
             ticks += 1
 
     async with anyio.create_task_group() as tg:
-        await tg.spawn(one_task)
+        tg.start_soon(one_task)
         await ensure_portal()
-        await_(tg.spawn(one_task))
+        tg.start_soon(one_task)
         await_(one_task(have_portal=True))
         await one_task(have_portal=True)
 
@@ -57,13 +57,13 @@ async def test_complex(library):
             await_(listener.serve(serve_echo_client, tg))
 
     async with anyio.create_task_group() as tg:
-        await tg.spawn(serve_echo)
+        tg.start_soon(serve_echo)
         await ensure_portal()
         port = listener.extra(anyio.abc.SocketAttribute.local_port)
         conn = await_(anyio.connect_tcp("127.0.0.1", port))
         await_(conn.send(b"hello"))
         assert b"hello" == await_(conn.receive(1024))
-        await_(tg.cancel_scope.cancel())
+        tg.cancel_scope.cancel()
 
 
 async def test_with_portal_run(library):
@@ -84,22 +84,22 @@ async def test_with_portal_run(library):
 
 async def test_bestow(library):
     task = None
-    task_started = anyio.create_event()
-    portal_installed = anyio.create_event()
+    task_started = anyio.Event()
+    portal_installed = anyio.Event()
 
     async def task_fn():
         nonlocal task
         task = greenback._impl.current_task()
-        await task_started.set()
+        task_started.set()
         await portal_installed.wait()
         await_(anyio.sleep(0))
 
     async with anyio.create_task_group() as tg:
-        await tg.spawn(task_fn)
+        tg.start_soon(task_fn)
         await task_started.wait()
         greenback.bestow_portal(task)
         greenback.bestow_portal(task)
-        await portal_installed.set()
+        portal_installed.set()
 
     with pytest.raises(RuntimeError):
         await_(anyio.sleep(0))
@@ -123,6 +123,12 @@ async def test_contextvars(library):
         cv.set(20)
         await_(inner())
         assert cv.get() == 30
+        cv.set(50)
+        nctx = contextvars.copy_context()
+        nctx.run(cv.set, 20)
+        nctx.run(await_, inner())
+        assert nctx[cv] == 30
+        assert cv.get() == 50
         cv.set(40)
 
     cv.set(10)
@@ -194,7 +200,7 @@ async def test_exit_task_with_error():
 async def test_portal_map_does_not_leak(library):
     async with anyio.create_task_group() as tg:
         for _ in range(1000):
-            await tg.spawn(ensure_portal)
+            tg.start_soon(ensure_portal)
 
     del tg
     for _ in range(4):

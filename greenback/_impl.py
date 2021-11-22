@@ -487,7 +487,7 @@ class AutoPortalInstrument(Instrument):
         self.refs = 0
 
     def task_spawned(self, task: "trio.lowlevel.Task") -> None:
-        if task.parent_nursery is None:  # pragma: no branch
+        if task.parent_nursery is None:  # pragma: no cover
             # We shouldn't see the init task (since this instrument is
             # added only after run() starts up) but don't crash if we do.
             return

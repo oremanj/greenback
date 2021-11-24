@@ -1,5 +1,0 @@
-We no longer assume that :func:`greenback.bestow_portal` is invoked from the
-"main" greenlet of the event loop. This was not a safe assumption: any task
-running with access to a greenback portal runs in a separate greenlet, and
-it is quite plausible that such a task might want to :func:`~greenback.bestow_portal`
-on another task.

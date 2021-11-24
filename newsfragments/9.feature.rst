@@ -1,9 +1,0 @@
-New function :func:`greenback.with_portal_run_tree` is like
-:func:`greenback.with_portal_run` for an entire Trio task subtree: it
-will enable :func:`greenback.await_` not only in the given async
-function but also in any child tasks spawned inside that
-function. This feature relies on the Trio instrumentation API and is
-thus unavailable on asyncio.
-
-New function :func:`greenback.has_portal` determines whether the current
-task, or another specified task, has a greenback portal set up already.

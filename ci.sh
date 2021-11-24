@@ -78,14 +78,7 @@ python -m pip install dist/*.zip
 
 pypy_tag=$(python -c "import sys; print('pypy' if sys.implementation.name == 'pypy' else '')")
 
-if [ "$CHECK_DOCS" = "1" ]; then
-    python -m pip install -r docs-requirements.txt
-    towncrier --yes  # catch errors in newsfragments
-    cd docs
-    # -n (nit-picky): warn on missing references
-    # -W: turn warnings into errors
-    sphinx-build -nW  -b html source build
-elif [ "$CHECK_LINT" = "1" ]; then
+if [ "$CHECK_LINT" = "1" ]; then
     python -m pip install -r test-requirements.txt
     source check.sh
 else

@@ -5,6 +5,36 @@ Release history
 
 .. towncrier release notes start
 
+greenback 1.0.0 (2021-11-23)
+----------------------------
+
+Features
+~~~~~~~~
+
+- New function :func:`greenback.with_portal_run_tree` is like
+  :func:`greenback.with_portal_run` for an entire Trio task subtree: it
+  will enable :func:`greenback.await_` not only in the given async
+  function but also in any child tasks spawned inside that
+  function. This feature relies on the Trio instrumentation API and is
+  thus unavailable on asyncio. (`#9 <https://github.com/oremanj/greenback/issues/9>`__)
+- New function :func:`greenback.has_portal` determines whether the current
+  task, or another specified task, has a greenback portal set up already. (`#9 <https://github.com/oremanj/greenback/issues/9>`__)
+
+
+Bugfixes
+~~~~~~~~
+
+- Add support for newer (1.0+) versions of greenlet, which expose a ``gr_context``
+  attribute directly, allowing us to remove the hacks that were added to support
+  0.4.17. greenlet 0.4.17 is no longer supported, but earlier (contextvar-naive)
+  versions should still work. (`#8 <https://github.com/oremanj/greenback/issues/8>`__)
+- We no longer assume that :func:`greenback.bestow_portal` is invoked from the
+  "main" greenlet of the event loop. This was not a safe assumption: any task
+  running with access to a greenback portal runs in a separate greenlet, and
+  it is quite plausible that such a task might want to :func:`~greenback.bestow_portal`
+  on another task. (`#9 <https://github.com/oremanj/greenback/issues/9>`__)
+
+
 greenback 0.3.0 (2020-10-13)
 ----------------------------
 

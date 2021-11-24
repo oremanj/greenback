@@ -14,9 +14,11 @@ a greenback *portal* for that task to use. You may choose between:
   code change to allow :func:`greenback.await_` in a particular task.
 
 * :func:`bestow_portal`: Create a portal to be used by some other specified task,
-  which lasts for the lifetime of that task. Use case: debugging and introspection
-  tools, such as writing a Trio instrument that makes *all* tasks (or all tasks
-  in a particular nursery) support :func:`await_` from the start.
+  which lasts for the lifetime of that task. Use case: enabling greenback in a task
+  without that task's cooperation, which may be useful in some debugging and
+  instrumentation situations. (:func:`with_portal_run_tree` is implemented
+  using a Trio instrument that calls :func:`bestow_portal` on certain newly
+  spawned tasks.)
 
 * :func:`with_portal_run`: Run an async function (in the current task)
   that might eventually make calls to :func:`await_`, with a portal
@@ -31,10 +33,23 @@ a greenback *portal* for that task to use. You may choose between:
   simpler and will be a bit faster (probably only noticeable if the
   function you're running is very short).
 
+* :func:`with_portal_run_tree`: Run an async function (in the current
+  task) that can make calls to :func:`await_` both itself and in all
+  of its child tasks, recursively.  Available on Trio only, since
+  asyncio lacks a clear task tree and also lacks the instrumentation
+  features required to implement this. Use case: minimally invasive
+  code change to allow :func:`greenback.await_` in an entire subsystem
+  of your Trio program.
+
+You can use :func:`has_portal` to determine whether a portal has already
+been set up.
+
 .. autofunction:: ensure_portal()
 .. autofunction:: bestow_portal(task)
 .. autofunction:: with_portal_run(async_fn, *args, **kwds)
 .. autofunction:: with_portal_run_sync(sync_fn, *args, **kwds)
+.. autofunction:: with_portal_run_tree(async_fn, *args, **kwds)
+.. autofunction:: has_portal(task=None)
 
 
 Using the portal

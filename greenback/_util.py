@@ -12,7 +12,7 @@ from typing import (
     TypeVar,
     cast,
 )
-from ._impl import await_
+from ._impl import await_, bestow_portal
 
 T = TypeVar("T")
 

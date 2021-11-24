@@ -50,7 +50,6 @@ Quickstart
 
 * Later, use ``greenback.await_(foo())`` as a replacement for
   ``await foo()`` in places where you can't write ``await``.
-  `documentation <https://greenback.readthedocs.io>`__.
 
 * For more details and additional helpers, read the rest of this documentation!
 

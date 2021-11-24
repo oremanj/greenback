@@ -528,11 +528,11 @@ async def with_portal_run_tree(
 
     .. note:: The automatic "portalization" of child tasks is
        implemented using a Trio `instrument <trio.abc.Instrument>`,
-       which has a small performance impact on task spawning the
-       entire Trio run. A single instrument is used even if you have
-       multiple :func:`with_portal_run_tree` calls running
-       simultaneously, and the instrument will be removed as soon as
-       all such calls have completed.
+       which has a small performance impact on task spawning for the
+       entire Trio run. To minimize this impact, a single instrument
+       is used even if you have multiple :func:`with_portal_run_tree`
+       calls running simultaneously, and the instrument will be
+       removed as soon as all such calls have completed.
 
     """
     try:

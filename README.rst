@@ -43,15 +43,25 @@ to modify the functions that actually perform I/O; you also need to
 (trivially) modify every function that directly or indirectly calls a
 function that performs I/O. While the results are generally an improvement
 ("explicit is better than implicit"), getting there in one big step is not
-always feasible.
+always feasible, especially if some of these layers are in libraries that
+you don't control.
 
 ``greenback`` is a small library that attempts to bridge this gap. It
 allows you to **call back into async code from a syntactically
 synchronous function**, as long as the synchronous function was
 originally called from an async task (running in an asyncio or Trio
-event loop) that set up a ``greenback`` trampoline as explained
-below. That way, you can migrate your program to ``async``/``await``
-syntax one layer at a time instead of all at once.
+event loop) that set up a ``greenback`` "portal" as explained
+below. This is potentially useful in a number of different situations:
+
+* You can interoperate with some existing libraries that are not
+  ``async``/``await`` aware, without pushing their work off into
+  another thread.
+
+* You can migrate an existing program to ``async``/``await``
+  syntax one layer at a time, instead of all at once.
+
+* You can (cautiously) design async APIs that block in places where
+  you can't write ``await``, such as on attribute accesses.
 
 ``greenback`` requires Python 3.6 or later and an implementation that
 supports the ``greenlet`` library. Either CPython or PyPy should work.
@@ -143,14 +153,15 @@ produced by the ``await``.
 **Should I trust this in production?** Maybe; try it and see. The
 technique is in some ways an awful hack, and has some performance
 implications (any task in which you call ``await
-greenback.ensure_portal()`` will run somewhat slower).  ``greenback``
-itself is a fairly small amount of pure-Python code on top of
-``greenlet``.  (There is one reasonably safe ctypes hack that is necessary
-to work around a knob that's not exposed by the asyncio acceleration
-extension module on CPython.) ``greenlet`` is a C module full of arcane
-platform-specific hacks, but it's been around for a very long time and
-popular production-quality concurrency systems such as ``gevent`` rely
-heavily on it.
+greenback.ensure_portal()`` will run somewhat slower), but we're in
+good company: SQLAlchemy's async ORM support is implemented in much
+the same way.  ``greenback`` itself is a fairly small amount of
+pure-Python code on top of ``greenlet``.  (There is one reasonably
+safe ctypes hack that is necessary to work around a knob that's not
+exposed by the asyncio acceleration extension module on CPython.)
+``greenlet`` is a C module full of arcane platform-specific hacks, but
+it's been around for a very long time and popular production-quality
+concurrency systems such as ``gevent`` rely heavily on it.
 
 **What won't work?** A few things:
 

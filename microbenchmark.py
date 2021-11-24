@@ -6,13 +6,14 @@ from functools import partial
 from greenback import await_
 
 checkpoint = trio.lowlevel.checkpoint
+ITERS = 100000
 
 async def busy():
-    for _ in range(10000):
+    for _ in range(ITERS):
         await checkpoint()
 
 def sync_busy():
-    for _ in range(10000):
+    for _ in range(ITERS):
         await_(checkpoint())
 
 async def each_busy():
@@ -22,14 +23,14 @@ async def each_busy():
     async def astep():
         step()
 
-    for _ in range(10000):
+    for _ in range(ITERS):
         await greenback.with_portal_run(astep)
 
 async def each_sync_busy():
     def step():
         await_(checkpoint())
 
-    for _ in range(10000):
+    for _ in range(ITERS):
         await greenback.with_portal_run_sync(step)
 
 async def each_pass():
@@ -39,25 +40,27 @@ async def each_pass():
     async def astep():
         step()
 
-    for _ in range(10000):
+    for _ in range(ITERS):
         await greenback.with_portal_run(astep)
 
 async def each_sync_pass():
     def step():
         pass
 
-    for _ in range(10000):
+    for _ in range(ITERS):
         await greenback.with_portal_run_sync(step)
 
 async def adapt_sync(fn):
     fn()
 
 async def timeit(label, afn, *args):
+    vals = []
     for idx in range(5):
         t0 = time.monotonic()
         await afn(*args)
         t1 = time.monotonic()
-        print(f"{idx} {label}: {(t1 - t0) * 100:.1f} usec/iteration")
+        vals.append((t1 - t0) * (1e6 / ITERS))
+    print(f"{label}: {sum(vals)/len(vals):.1f} {vals!r}")
 
 async def main():
     # Baseline: checkpoint with no greenback involved.

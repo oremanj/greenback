@@ -1,0 +1,2 @@
+:func:`greenback.has_portal` now properly respects its *task* argument;
+previously it erroneously would always inspect the current task.

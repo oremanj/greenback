@@ -391,7 +391,7 @@ async def ensure_portal() -> None:
     # This is necessary in case the caller immediately invokes greenback.await_()
     # without any further checkpoints.
     library = sniffio.current_async_library()
-    await sys.modules[library].sleep(0)  # type: ignore
+    await sys.modules[library].sleep(0)
 
 
 def has_portal(
@@ -401,7 +401,12 @@ def has_portal(
     :func:`greenback.await_`, false otherwise. If no *task* is
     specified, query the currently executing task.
     """
-    return current_task() in task_has_portal
+    if task is None:
+        try:
+            task = current_task()
+        except sniffio.AsyncLibraryNotFoundError:
+            return False
+    return task in task_has_portal
 
 
 async def with_portal_run(
@@ -561,7 +566,7 @@ async def with_portal_run_tree(
     elif this_task in instrument.tasks:
         # We're already inside another call to with_portal_run_tree(), so nothing
         # more needs to be done
-        assert has_portal()
+        assert this_task in task_has_portal
         return await async_fn(*args, **kwds)
 
     # Store our current nursery depth. This allows the instrument to

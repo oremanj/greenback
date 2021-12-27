@@ -45,9 +45,9 @@ def decorate_as_sync(decorator: Callable[[F], F]) -> Callable[[AF], AF]:
 # the decorated function are both async. (This could be improved using ParamSpec
 # for decorators that are args-preserving but not return-type-preserving.)
 @overload
-def decorate_as_sync(decorator: Callable[..., Any]) -> Callable[
-    [Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]
-]:
+def decorate_as_sync(
+    decorator: Callable[..., Any]
+) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
     ...
 
 
@@ -81,8 +81,9 @@ def decorate_as_sync(decorator: Any) -> Any:
         )
 
     """
+
     def decorate(async_fn: Any) -> Any:
-        @decorator
+        @decorator  # type: ignore  # "Untyped decorator makes 'inner' untyped"
         @wraps(async_fn)
         def inner(*args: Any, **kwds: Any) -> Any:
             return await_(async_fn(*args, **kwds))

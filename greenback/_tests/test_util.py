@@ -21,7 +21,22 @@ async def test_autoawait():
     assert trio.current_time() == 6
 
 
-async def test_decorate_as_sync():
+def get_py_lru_cache():
+    try:
+        _functools = sys.modules["_functools"]
+        functools = sys.modules.pop("functools")
+    except KeyError:
+        return functools.lru_cache
+    sys.modules["_functools"] = None
+    try:
+        return __import__("functools").lru_cache
+    finally:
+        sys.modules["functools"] = functools
+        sys.modules["_functools"] = _functools
+
+
+@pytest.parameterize("lru_cache", (functools.lru_cache, get_py_lru_cache()))
+async def test_decorate_as_sync(lru_cache):
     @decorate_as_sync(functools.lru_cache())
     async def example(*args, **kw):
         assert has_portal()

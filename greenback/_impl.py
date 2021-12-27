@@ -391,7 +391,7 @@ async def ensure_portal() -> None:
     # This is necessary in case the caller immediately invokes greenback.await_()
     # without any further checkpoints.
     library = sniffio.current_async_library()
-    await sys.modules[library].sleep(0)  # type: ignore
+    await sys.modules[library].sleep(0)
 
 
 def has_portal(

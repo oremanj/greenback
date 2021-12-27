@@ -11,10 +11,13 @@ from typing import (
     Optional,
     TypeVar,
     cast,
+    overload,
 )
-from ._impl import await_, bestow_portal
+from ._impl import await_, with_portal_run_sync
 
 T = TypeVar("T")
+F = TypeVar("F", bound=Callable[..., Any])
+AF = TypeVar("AF", bound=Callable[..., Awaitable[Any]])
 
 
 def autoawait(fn: Callable[..., Awaitable[T]]) -> Callable[..., T]:
@@ -29,6 +32,68 @@ def autoawait(fn: Callable[..., Awaitable[T]]) -> Callable[..., T]:
         return await_(fn(*args, **kw))
 
     return wrapper
+
+
+# For signature-preserving decorators we can declare the result as
+# signature-preserving too, and catch the case where the inner function isn't async
+@overload
+def decorate_as_sync(decorator: Callable[[F], F]) -> Callable[[AF], AF]:
+    ...
+
+
+# For non-signature-preserving, all we can do is say the inner function and
+# the decorated function are both async. (This could be improved using ParamSpec
+# for decorators that are args-preserving but not return-type-preserving.)
+@overload
+def decorate_as_sync(decorator: Callable[..., Any]) -> Callable[
+    [Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]
+]:
+    ...
+
+
+def decorate_as_sync(decorator: Any) -> Any:
+    """Wrap the synchronous function decorator *decorator* so that it can
+    be used to decorate an async function.
+
+    This can be used, for example, to apply an async-naive decorator such as
+    `@functools.lru_cache() <functools.lru_cache>` to an async function::
+
+        @greenback.decorate_as_sync(functools.lru_cache(maxsize=128))
+        async def some_fn(...): ...
+
+    Without the wrapping in :func:`decorate_as_sync`, the LRU cache
+    would treat the inner function as a synchronous function, and
+    would therefore unhelpfully cache the coroutine object that is
+    returned when an async function is called without ``await``.
+
+    Internally, the "inner" async function is wrapped in a synchronous
+    function that invokes that async function using
+    :func:`greenback.await_`. This synchronous function is then
+    decorated with the *decorator*. :func:`decorate_as_sync` returns
+    an "outer" async function which invokes the internal decorated
+    synchronous function using :func:`greenback.with_portal_run_sync`.
+
+    In other words, the following two calls behave identically::
+
+        result = await greenback.decorate_as_sync(decorator)(async_fn)(*args, **kwds)
+        result = await greenback.with_portal_run_sync(
+            decorator(greenback.autoawait(async_fn)), *args, **kwds,
+        )
+
+    """
+    def decorate(async_fn: Any) -> Any:
+        @decorator
+        @wraps(async_fn)
+        def inner(*args: Any, **kwds: Any) -> Any:
+            return await_(async_fn(*args, **kwds))
+
+        @wraps(inner)
+        async def outer(*args: Any, **kwds: Any) -> Any:
+            return await with_portal_run_sync(inner, *args, **kwds)
+
+        return outer
+
+    return decorate
 
 
 class async_context(Generic[T]):

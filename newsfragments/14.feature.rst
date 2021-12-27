@@ -1,0 +1,3 @@
+Added `@greenback.decorate_as_sync() <greenback.decorate_as_sync>`, which wraps
+a synchronous function decorator such as :func:`functools.lru_cache` so that it
+can be used to decorate an async function.

@@ -75,6 +75,9 @@ be helpful when adapting async code to work with synchronous interfaces.
 
    For example, this can be used for magic methods, property setters, and so on.
 
+.. autofunction:: decorate_as_sync(decorator)
+   :decorator:
+
 .. function:: async_context(async_cm)
    :with:
 

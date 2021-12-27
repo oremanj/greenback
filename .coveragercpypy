@@ -9,4 +9,5 @@ precision = 1
 exclude_lines =
   pragma: no cover
   abc.abstractmethod
+  @overload
   if TYPE_CHECKING:

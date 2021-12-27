@@ -3,6 +3,7 @@ branch=True
 source=greenback
 concurrency=greenlet
 
+# When modifying exclude patterns, be sure to update .coveragercpypy as well
 [report]
 precision = 1
 exclude_lines =

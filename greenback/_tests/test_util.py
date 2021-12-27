@@ -1,6 +1,7 @@
 import functools
 import gc
 import pytest
+import sys
 import trio
 from async_generator import asynccontextmanager
 
@@ -35,7 +36,7 @@ def get_py_lru_cache():
         sys.modules["_functools"] = _functools
 
 
-@pytest.parameterize("lru_cache", (functools.lru_cache, get_py_lru_cache()))
+@pytest.mark.parametrize("lru_cache", (functools.lru_cache, get_py_lru_cache()))
 async def test_decorate_as_sync(lru_cache):
     @decorate_as_sync(functools.lru_cache())
     async def example(*args, **kw):

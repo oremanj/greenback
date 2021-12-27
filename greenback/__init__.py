@@ -10,4 +10,4 @@ from ._impl import (
     with_portal_run_tree,
     await_,
 )
-from ._util import autoawait, async_context, async_iter
+from ._util import autoawait, decorate_as_sync, async_context, async_iter

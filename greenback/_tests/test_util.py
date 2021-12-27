@@ -1,10 +1,12 @@
+import functools
 import gc
 import pytest
+import sys
 import trio
 from async_generator import asynccontextmanager
 
-from .._impl import ensure_portal
-from .._util import autoawait, async_context, async_iter
+from .._impl import ensure_portal, has_portal
+from .._util import autoawait, async_context, async_iter, decorate_as_sync
 
 
 @autoawait
@@ -18,6 +20,24 @@ async def test_autoawait():
     await trio.sleep(2)
     sync_sleep(3)
     assert trio.current_time() == 6
+
+
+async def test_decorate_as_sync():
+    @decorate_as_sync(functools.lru_cache())
+    async def example(*args, **kw):
+        assert has_portal()
+        await trio.sleep(1)
+        return (sum(args), list(kw.keys()))
+
+    assert example.__wrapped__.__name__ == "example"
+
+    assert (3, ["test"]) == await example(1, 2, test="foo")
+    assert trio.current_time() == 1
+    assert (3, ["test"]) == await example(1, 2, test="foo")
+    assert trio.current_time() == 1
+    assert (1, []) == await example(1)
+    assert trio.current_time() == 2
+    assert not has_portal()
 
 
 class AsyncMagic:

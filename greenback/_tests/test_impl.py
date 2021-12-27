@@ -144,7 +144,9 @@ async def test_bestow(library):
     async with anyio.create_task_group() as tg:
         tg.start_soon(task_fn)
         await task_started.wait()
+        assert not has_portal(task)
         greenback.bestow_portal(task)
+        assert has_portal(task)
         greenback.bestow_portal(task)
         portal_installed.set()
 
@@ -195,6 +197,8 @@ async def test_contextvars(library):
 
 
 def test_misuse():
+    assert not greenback.has_portal()  # shouldn't raise an error
+
     with pytest.raises(RuntimeError, match="only supported.*running under Trio"):
         anyio.run(greenback.with_portal_run_tree, anyio.sleep, 1, backend="asyncio")
 

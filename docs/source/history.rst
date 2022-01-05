@@ -5,6 +5,26 @@ Release history
 
 .. towncrier release notes start
 
+greenback 1.1.0 (2022-01-05)
+----------------------------
+
+Features
+~~~~~~~~
+
+- Added `@greenback.decorate_as_sync() <greenback.decorate_as_sync>`, which wraps
+  a synchronous function decorator such as :func:`functools.lru_cache` so that it
+  can be used to decorate an async function. (`#14 <https://github.com/oremanj/greenback/issues/14>`__)
+
+
+Bugfixes
+~~~~~~~~
+
+- :func:`greenback.has_portal` now returns False instead of raising an
+  error if called outside async context. (`#12 <https://github.com/oremanj/greenback/issues/12>`__)
+- :func:`greenback.has_portal` now properly respects its *task* argument;
+  previously it erroneously would always inspect the current task. (`#13 <https://github.com/oremanj/greenback/issues/13>`__)
+
+
 greenback 1.0.0 (2021-11-23)
 ----------------------------
 

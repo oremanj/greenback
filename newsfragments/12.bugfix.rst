@@ -1,2 +1,0 @@
-:func:`greenback.has_portal` now returns False instead of raising an
-error if called outside async context.

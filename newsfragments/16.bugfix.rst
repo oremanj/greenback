@@ -1,3 +1,0 @@
-:func:`greenback.has_portal` now returns False, instead of raising an error, if it is
-called within an asyncio program in a context where no task is running (such as a file
-descriptor readability callback).

@@ -227,7 +227,7 @@ async def test_contextvars(library):
 def test_aio_context_without_active_task():
     import asyncio
 
-    if sys.platform == "win32":
+    if sys.platform == "win32":  # pragma: no cover
         pytest.skip("test is UNIX-specific")
 
     async def aio_main():

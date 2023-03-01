@@ -189,11 +189,6 @@ async def test_no_context_leakage():
 
 
 async def test_contextvars(library):
-    if sys.version_info < (3, 7) and library != "trio":
-        pytest.skip("contextvars not supported on this version")
-
-    import contextvars
-
     cv = contextvars.ContextVar("cv")
 
     async def inner():
@@ -206,9 +201,7 @@ async def test_contextvars(library):
         cv.set(20)
         await_(inner())
         assert cv.get() == 30
-        if sys.version_info >= (3, 7) and getattr(
-            greenlet, "GREENLET_USE_CONTEXT_VARS", False
-        ):
+        if getattr(greenlet, "GREENLET_USE_CONTEXT_VARS", False):
             # greenlet is not aware of the backported contextvars,
             # so can't support Context.run() correctly before 3.7.
             # greenlet that isn't contextvars-aware hangs if the

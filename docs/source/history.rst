@@ -5,6 +5,21 @@ Release history
 
 .. towncrier release notes start
 
+greenback 1.1.1 (2023-03-01)
+----------------------------
+
+Bugfixes
+~~~~~~~~
+
+- :func:`greenback.has_portal` now returns False, instead of raising an error, if it is
+  called within an asyncio program in a context where no task is running (such as a file
+  descriptor readability callback). (`#16 <https://github.com/oremanj/greenback/issues/16>`__)
+- Fixed a bug that could result in inadvertent sharing of context variables. Specifically,
+  when one task that already had a greenback portal set up called
+  :func:`greenback.bestow_portal` on a different task, the second task could wind up
+  sharing the first task's `contextvars` context. (`#17 <https://github.com/oremanj/greenback/issues/17>`__)
+
+
 greenback 1.1.0 (2022-01-05)
 ----------------------------
 

@@ -245,8 +245,7 @@ def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
             task = asyncio.current_task()
         else:  # pragma: no cover
             task = asyncio.Task.current_task()
-        if task is None:  # pragma: no cover
-            # typeshed says this is possible, but I haven't been able to induce it
+        if task is None:
             raise RuntimeError("No asyncio task is running")
         return task
     else:
@@ -409,7 +408,7 @@ def has_portal(
     if task is None:
         try:
             task = current_task()
-        except sniffio.AsyncLibraryNotFoundError:
+        except (RuntimeError, sniffio.AsyncLibraryNotFoundError):
             return False
     return task in task_has_portal
 

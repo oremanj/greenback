@@ -3,6 +3,7 @@ import contextvars
 import gc
 import re
 import types
+import os
 import sys
 import warnings
 
@@ -221,6 +222,31 @@ async def test_contextvars(library):
     assert cv.get() == 40
     await anyio.sleep(0)
     assert cv.get() == 40
+
+
+def test_aio_context_without_active_task():
+    import asyncio
+
+    if sys.platform == "win32":
+        pytest.skip("test is UNIX-specific")
+
+    async def aio_main():
+        rfd, wfd = os.pipe()
+        fut = asyncio.Future()
+
+        def on_readable():
+            fut.set_result(greenback.has_portal())
+
+        await greenback.ensure_portal()
+        assert greenback.has_portal()
+        asyncio.get_running_loop().add_reader(rfd, on_readable)
+        os.write(wfd, b"hi")
+        has_portal_result = await fut
+        os.close(rfd)
+        os.close(wfd)
+        assert not has_portal_result
+
+    asyncio.run(aio_main())
 
 
 def test_misuse():

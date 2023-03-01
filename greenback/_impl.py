@@ -88,7 +88,7 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
     # has a hard time raising StopIteration, because it's a generator,
     # and unrolling it into a non-generator iterable makes it slower.
     # So we'll accept a bit of code duplication.
-    parent_greenlet = greenlet.getcurrent()
+    parent_greenlet: greenlet.greenlet
 
     # The greenlet in which each send() or throw() call will occur.
     child_greenlet: Optional[greenlet.greenlet] = None
@@ -115,6 +115,11 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
             next_send = outcome.Error(ex)
         try:
             if not child_greenlet:
+                # It is important that we delay the parent_greenlet fetch until
+                # we actually create the child_greenlet. Otherwise, we will inherit
+                # whatever greenlet is active when bestow_portal() is called, which
+                # messes up the context fixup below.
+                parent_greenlet = greenlet.getcurrent()
                 # Start a new send() or throw() call on the original coroutine.
                 child_greenlet = greenlet.greenlet(next_send.send)
                 switch_arg: Any = orig_coro

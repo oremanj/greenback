@@ -1,4 +1,5 @@
 import collections
+import contextvars
 import gc
 import re
 import types
@@ -152,6 +153,39 @@ async def test_bestow(library):
 
     with pytest.raises(RuntimeError):
         await_(anyio.sleep(0))
+
+
+async def test_no_context_leakage():
+    # Regression test for issue 17
+    cvar = contextvars.ContextVar("test_task_id")
+    portal_installed = trio.Event()
+
+    async def task1(task_status):
+        cvar.set("task1")
+        task_status.started(trio.lowlevel.current_task())
+        assert not has_portal()
+        await portal_installed.wait()
+        assert has_portal()
+        assert cvar.get() == "task1"
+        await_(trio.sleep(0))
+        assert cvar.get() == "task1"
+
+    async def task2(target_task):
+        cvar.set("task2")
+        await greenback.ensure_portal()
+        await_(trio.sleep(0))
+        assert cvar.get() == "task2"
+        greenback.bestow_portal(target_task)
+        portal_installed.set()
+        await trio.sleep(0)
+        assert cvar.get() == "task2"
+
+    async with trio.open_nursery() as nursery:
+        target_task = await nursery.start(task1)
+        nursery.start_soon(task2, target_task)
+
+    with pytest.raises(LookupError):
+        cvar.get()
 
 
 async def test_contextvars(library):

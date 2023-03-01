@@ -52,8 +52,8 @@ aio_task_coro_c_offset: Optional[int] = None
 # greenlet v0.4.17 tried to be context-aware but isn't configurable
 # to get the behavior we want; we forbid it in our setup.py dependencies.)
 # See https://github.com/python-greenlet/greenlet/issues/196 for details.
-greenlet_needs_context_fixup: bool = (
-    contextvars is not None and getattr(greenlet, "GREENLET_USE_CONTEXT_VARS", False)
+greenlet_needs_context_fixup: bool = contextvars is not None and getattr(
+    greenlet, "GREENLET_USE_CONTEXT_VARS", False
 )
 
 
@@ -88,7 +88,7 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
     # has a hard time raising StopIteration, because it's a generator,
     # and unrolling it into a non-generator iterable makes it slower.
     # So we'll accept a bit of code duplication.
-    parent_greenlet = greenlet.getcurrent()
+    parent_greenlet: greenlet.greenlet
 
     # The greenlet in which each send() or throw() call will occur.
     child_greenlet: Optional[greenlet.greenlet] = None
@@ -115,6 +115,11 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
             next_send = outcome.Error(ex)
         try:
             if not child_greenlet:
+                # It is important that we delay the parent_greenlet fetch until
+                # we actually create the child_greenlet. Otherwise, we will inherit
+                # whatever greenlet is active when bestow_portal() is called, which
+                # messes up the context fixup below.
+                parent_greenlet = greenlet.getcurrent()
                 # Start a new send() or throw() call on the original coroutine.
                 child_greenlet = greenlet.greenlet(next_send.send)
                 switch_arg: Any = orig_coro
@@ -238,7 +243,7 @@ def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
 
         if sys.version_info >= (3, 7):
             task = asyncio.current_task()
-        else:
+        else:  # pragma: no cover
             task = asyncio.Task.current_task()
         if task is None:  # pragma: no cover
             # typeshed says this is possible, but I haven't been able to induce it
@@ -306,13 +311,13 @@ def set_aio_task_coro(
     # ctypes.pythonapi.Py_{Inc,Dec}Ref because we might clash with user code
     # that also tries to use them but with different types. So private _ctypes
     # APIs it is!
-    import _ctypes  # type: ignore
+    import _ctypes
 
     coro_field = ctypes.c_size_t.from_address(id(task) + aio_task_coro_c_offset)
     assert coro_field.value == id(old_coro)
-    _ctypes.Py_INCREF(new_coro)
+    _ctypes.Py_INCREF(new_coro)  # type: ignore
     coro_field.value = id(new_coro)
-    _ctypes.Py_DECREF(old_coro)
+    _ctypes.Py_DECREF(old_coro)  # type: ignore
 
 
 def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> None:

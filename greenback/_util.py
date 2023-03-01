@@ -1,3 +1,4 @@
+import sys
 from functools import wraps
 from typing import (
     Any,
@@ -106,18 +107,39 @@ class async_context(Generic[T]):
     def __init__(self, cm: AsyncContextManager[T]):
         self._cm = cm
 
-    def __enter__(self) -> T:
-        try:
-            self._aexit = type(self._cm).__aexit__
-        except AttributeError:
-            raise AttributeError(
-                f"type object {type(self._cm).__name__!r} has no attribute '__aexit__'"
-            ) from None
-        aenter = type(self._cm).__aenter__
-        return await_(aenter(self._cm))
+    if sys.version_info >= (3, 11):
+
+        def __enter__(self) -> T:
+            try:
+                aenter = type(self._cm).__aenter__
+            except AttributeError:
+                raise TypeError(
+                    f"{type(self._cm).__name__!r} object does not support the "
+                    "asynchronous context manager protocol"
+                ) from None
+            try:
+                self._aexit = type(self._cm).__aexit__
+            except AttributeError:
+                raise TypeError(
+                    f"{type(self._cm).__name__!r} object does not support the "
+                    "asynchronous context manager protocol (missed __aexit__ method)"
+                ) from None
+            return await_(aenter(self._cm))
+
+    else:
+
+        def __enter__(self) -> T:
+            try:
+                self._aexit = type(self._cm).__aexit__
+            except AttributeError:
+                raise AttributeError(
+                    f"type object {type(self._cm).__name__!r} has no attribute '__aexit__'"
+                ) from None
+            aenter = type(self._cm).__aenter__
+            return await_(aenter(self._cm))  # type: ignore
 
     def __exit__(self, *exc: Any) -> Optional[bool]:
-        return await_(self._aexit(self._cm, *exc))
+        return await_(self._aexit(self._cm, *exc))  # type: ignore
 
 
 class async_iter(Generic[T]):
@@ -135,7 +157,7 @@ class async_iter(Generic[T]):
                 "'async_iter' requires an object with __aiter__ method, got "
                 + type(iterable).__name__
             ) from None
-        self._it = aiter(iterable)
+        self._it = aiter(iterable)  # type: ignore
         try:
             type(self._it).__anext__
         except AttributeError:
@@ -151,7 +173,7 @@ class async_iter(Generic[T]):
 
     def __next__(self) -> T:
         try:
-            return await_(type(self._it).__anext__(self._it))
+            return await_(type(self._it).__anext__(self._it))  # type: ignore
         except StopAsyncIteration as ex:
             raise StopIteration(*ex.args)
 

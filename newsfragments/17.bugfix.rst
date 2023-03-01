@@ -1,0 +1,4 @@
+Fixed a bug that could result in inadvertent sharing of context variables. Specifically,
+when one task that already had a greenback portal set up called
+:func:`greenback.bestow_portal` on a different task, the second task could wind up
+sharing the first task's `contextvars` context.

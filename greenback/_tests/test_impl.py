@@ -1,4 +1,5 @@
 import collections
+import contextvars
 import gc
 import re
 import types
@@ -154,12 +155,40 @@ async def test_bestow(library):
         await_(anyio.sleep(0))
 
 
+async def test_no_context_leakage():
+    # Regression test for issue 17
+    cvar = contextvars.ContextVar("test_task_id")
+    portal_installed = trio.Event()
+
+    async def task1(task_status):
+        cvar.set("task1")
+        task_status.started(trio.lowlevel.current_task())
+        assert not has_portal()
+        await portal_installed.wait()
+        assert has_portal()
+        assert cvar.get() == "task1"
+        await_(trio.sleep(0))
+        assert cvar.get() == "task1"
+
+    async def task2(target_task):
+        cvar.set("task2")
+        await greenback.ensure_portal()
+        await_(trio.sleep(0))
+        assert cvar.get() == "task2"
+        greenback.bestow_portal(target_task)
+        portal_installed.set()
+        await trio.sleep(0)
+        assert cvar.get() == "task2"
+
+    async with trio.open_nursery() as nursery:
+        target_task = await nursery.start(task1)
+        nursery.start_soon(task2, target_task)
+
+    with pytest.raises(LookupError):
+        cvar.get()
+
+
 async def test_contextvars(library):
-    if sys.version_info < (3, 7) and library != "trio":
-        pytest.skip("contextvars not supported on this version")
-
-    import contextvars
-
     cv = contextvars.ContextVar("cv")
 
     async def inner():
@@ -172,9 +201,7 @@ async def test_contextvars(library):
         cv.set(20)
         await_(inner())
         assert cv.get() == 30
-        if sys.version_info >= (3, 7) and getattr(
-            greenlet, "GREENLET_USE_CONTEXT_VARS", False
-        ):
+        if getattr(greenlet, "GREENLET_USE_CONTEXT_VARS", False):
             # greenlet is not aware of the backported contextvars,
             # so can't support Context.run() correctly before 3.7.
             # greenlet that isn't contextvars-aware hangs if the

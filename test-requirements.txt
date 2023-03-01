@@ -3,17 +3,12 @@ pytest
 pytest-cov
 pytest-trio
 
-# We run tests on both asyncio and Trio
-trio >= 0.16.0
-anyio >= 2.0
+# We run tests on both asyncio and Trio. anyio 4.0 (not yet released) and trio 0.22.0 must be used together.
+anyio < 4.0
+trio < 0.22.0
 
 # Tools
-black == 19.10b0; implementation_name == "cpython"
+black >= 19.10b0; implementation_name == "cpython"
 mypy >= 0.750; implementation_name == "cpython"
 flake8
 trio-typing >= 0.5.0
-
-# typed-ast is required by black + mypy and doesn't build on PyPy;
-# it will be unconstrained in requirements.txt if we don't
-# constrain it here
-typed-ast; implementation_name == "cpython"

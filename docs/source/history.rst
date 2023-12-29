@@ -5,6 +5,16 @@ Release history
 
 .. towncrier release notes start
 
+greenback 1.1.2 (2023-12-28)
+----------------------------
+
+Bugfixes
+~~~~~~~~
+
+- Public exports now use ``from ._submod import X as X`` syntax so that type checkers will know
+  they're public exports. (`#23 <https://github.com/oremanj/greenback/pull/23>`__)
+
+
 greenback 1.1.1 (2023-03-01)
 ----------------------------
 

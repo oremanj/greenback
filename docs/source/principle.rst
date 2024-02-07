@@ -206,9 +206,7 @@ CPython 3.12, greenlet 3.0.3, and Trio 0.24.0, I get:
 
 * Creating a new portal for each of those ``await_(checkpoint())``
   invocations adds another **16 microseconds** or so per portal
-  creation. If you don't execute any checkpoints while the portal is
-  active, you can create and destroy it in more like **5
-  microseconds**.  If you use :func:`with_portal_run_sync`, portal
+  creation. If you use :func:`with_portal_run_sync`, portal
   creation gets about **10 microseconds** faster (so the portal is only
   adding about 6 microseconds of overhead).
 

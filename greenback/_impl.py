@@ -45,9 +45,9 @@ T = TypeVar("T")
 # runs, its value in this mapping will be None, because we don't yet know
 # which greenlet is running its greenback_shim coroutine. That's fine because
 # we can't reach an await_ in the new task until its first tick runs.
-task_portals: MutableMapping[
-    object, Optional[greenlet.greenlet]
-] = weakref.WeakKeyDictionary()
+task_portals: MutableMapping[object, Optional[greenlet.greenlet]] = (
+    weakref.WeakKeyDictionary()
+)
 
 # The offset of asyncio.Task._coro in the Task object memory layout, if
 # asyncio.Task is implemented in C (which it generally is on CPython 3.6+).
@@ -153,9 +153,7 @@ def _greenback_shim(
     # the control flow. This way we only have to create one greenlet per
     # portal, instead of one per event loop trap that uses the portal; this
     # improves efficiency.
-    child_greenlet = greenlet.greenlet(
-        partial(trampoline, portal_greenlet, orig_coro)
-    )
+    child_greenlet = greenlet.greenlet(partial(trampoline, portal_greenlet, orig_coro))
 
     # The greenlet to which we will send the next thing our event loop
     # sends us. This is initially the child_greenlet, but if the child_greenlet
@@ -214,7 +212,6 @@ def _greenback_shim(
         except BaseException as ex:
             # If the event loop resumed us with an error, we forward that error
             next_send = outcome.Error(ex)
-
 
 
 @types.coroutine

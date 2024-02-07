@@ -61,6 +61,16 @@ Quickstart
 * Later, use ``greenback.await_(foo())`` as a replacement for
   ``await foo()`` in places where you can't write ``await``.
 
+* If all of the places where you want to use
+  ``greenback.await_()`` are indirectly within a single function, you can
+  eschew the ``await greenback.ensure_portal()`` and instead write a wrapper
+  around calls to that function: ``await greenback.with_portal_run(...)``
+  for an async function, or ``await greenback.with_portal_run_sync(...)``
+  for a synchronous function. These have the advantage of cleaning up the
+  portal (and its associated minor :ref:`performance impact <performance>`)
+  as soon as the function returns, rather than leaving it open until the task
+  terminates.
+
 * For more details and additional helpers, read the rest of this documentation!
 
 Detailed documentation

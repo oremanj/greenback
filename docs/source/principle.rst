@@ -187,30 +187,30 @@ The slowdown due to `greenback` is mostly proportional to the
 number of times you yield to the event loop with a portal active, as well
 as the number of portal creations and :func:`await_` calls you perform.
 You can run the ``microbenchmark.py`` script from the Git repository
-to see the numbers on your machine. On a 2020 MacBook Pro (x86), with
-CPython 3.9, greenlet 1.1.2, and Trio 0.19.0, I get:
+to see the numbers on your machine. On a 2023 MacBook Pro (ARM64), with
+CPython 3.12, greenlet 3.0.3, and Trio 0.24.0, I get:
 
 * Baseline: The simplest possible async operation is what Trio calls a
   *checkpoint*: yield to the event loop and ask to immediately be
-  rescheduled again.  This takes about **31.5 microseconds** on Trio and
-  **28 microseconds** on asyncio.  (asyncio is able to take advantage
+  rescheduled again.  This takes about **13.6 microseconds** on Trio and
+  **12.9 microseconds** on asyncio.  (asyncio is able to take advantage
   of some C acceleration here.)
 
 * Adding the greenback portal, without making any :func:`await_` calls
-  yet, adds about **4 microseconds** per checkpoint.
+  yet, adds about **1 microsecond** per checkpoint.
 
 * Executing each of those checkpoints through a separate
-  :func:`await_` adds another **10 microseconds** per :func:`await_` on
-  Trio, or **8 microseconds** on asyncio. (Surrounding
-  the entire checkpoint loop in a single :func:`await_`, by contrast,
-  has negligible impact.)
+  :func:`await_` adds about another **2 microseconds** per :func:`await_`.
+  (Surrounding the entire checkpoint loop in a single :func:`await_`, by
+  contrast, has negligible impact.)
 
 * Creating a new portal for each of those ``await_(checkpoint())``
-  invocations adds another **12 microseconds** or so per portal
+  invocations adds another **16 microseconds** or so per portal
   creation. If you don't execute any checkpoints while the portal is
   active, you can create and destroy it in more like **5
   microseconds**.  If you use :func:`with_portal_run_sync`, portal
-  creation gets about **3 microseconds** faster.
+  creation gets about **10 microseconds** faster (so the portal is only
+  adding about 6 microseconds of overhead).
 
 Keep in mind that these are microbenchmarks: your actual program is
 probably not executing checkpoints in a tight loop! The more work

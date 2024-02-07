@@ -1,0 +1,4 @@
+greenback now properly handles cases where a task spawns another greenlet
+(not managed by greenback) that in turn calls :func:`greenback.await_`.
+This improves interoperability with other greenback-like systems that do not
+use the greenback library, such as SQLAlchemy's async ORM support.

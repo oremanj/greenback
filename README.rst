@@ -78,6 +78,15 @@ Quickstart
 * Later, use ``greenback.await_(foo())`` as a replacement for
   ``await foo()`` in places where you can't write ``await``.
 
+* If all of the places where you want to use
+  ``greenback.await_()`` are indirectly within a single function, you can
+  eschew the ``await greenback.ensure_portal()`` and instead write a wrapper
+  around calls to that function: ``await greenback.with_portal_run(...)``
+  for an async function, or ``await greenback.with_portal_run_sync(...)``
+  for a synchronous function. These have the advantage of cleaning up the
+  portal (and its associated minor performance impact) as soon as the
+  function returns, rather than leaving it open until the task terminates.
+
 * For more details and additional helper methods, see the
   `documentation <https://greenback.readthedocs.io>`__.
 
@@ -141,25 +150,25 @@ FAQ
 something.
 
 **How does it work?** After you run ``await greenback.ensure_portal()``
-in a certain task, each step of that task will run inside a greenlet.
+in a certain task, that task will run inside a greenlet.
 (This is achieved by interposing a "shim" coroutine in between the event
 loop and the coroutine for your task; see the source code for details.)
 Calls to ``greenback.await_()`` are then able to switch from that greenlet
 back to the parent greenlet, which can easily perform the necessary
 ``await`` since it has direct access to the async environment. The
-per-task-step greenlet is then resumed with the value or exception
+task greenlet is then resumed with the value or exception
 produced by the ``await``.
 
 **Should I trust this in production?** Maybe; try it and see. The
-technique is in some ways an awful hack, and has some performance
-implications (any task in which you call ``await
-greenback.ensure_portal()`` will run somewhat slower), but we're in
+technique is rather low-level, and has some minor
+`performance implications <https://greenback.readthedocs.io/en/latest/principle.html#performance>`__ (any task in which you call ``await
+greenback.ensure_portal()`` will run a bit slower), but we're in
 good company: SQLAlchemy's async ORM support is implemented in much
 the same way.  ``greenback`` itself is a fairly small amount of
-pure-Python code on top of ``greenlet``.  (There is one reasonably
-safe ctypes hack that is necessary to work around a knob that's not
-exposed by the asyncio acceleration extension module on CPython.)
-``greenlet`` is a C module full of arcane platform-specific hacks, but
+pure-Python code on top of ``greenlet``. (There is one small usage of
+``ctypes`` to work around a knob that's not exposed by the asyncio
+acceleration extension module on CPython.)
+``greenlet`` is a C module full of platform-specific arcana, but
 it's been around for a very long time and popular production-quality
 concurrency systems such as ``gevent`` rely heavily on it.
 

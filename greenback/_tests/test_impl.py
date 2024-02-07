@@ -24,9 +24,7 @@ async def test_simple(library):
     async def one_task(*, have_portal=False):
         if not have_portal:
             assert not has_portal()
-            with pytest.raises(
-                RuntimeError, match="you must 'await greenback.ensure_portal"
-            ):
+            with pytest.raises(RuntimeError, match="create a greenback portal"):
                 await_(anyio.sleep(0))
             await ensure_portal()
             await ensure_portal()
@@ -141,6 +139,8 @@ async def test_bestow(library):
         task = greenback._impl.current_task()
         task_started.set()
         await portal_installed.wait()
+        assert has_portal(task)
+        assert has_portal()
         await_(anyio.sleep(0))
 
     async with anyio.create_task_group() as tg:
@@ -152,8 +152,20 @@ async def test_bestow(library):
         greenback.bestow_portal(task)
         portal_installed.set()
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="must create a greenback portal"):
         await_(anyio.sleep(0))
+
+    # bestow_portal() on self doesn't work until the next checkpoint:
+    greenback.bestow_portal(greenback._impl.current_task())
+    assert not has_portal()
+    assert not has_portal(greenback._impl.current_task())
+    with pytest.raises(RuntimeError, match="must yield to the event loop"):
+        await_(anyio.sleep(0))
+    # after a checkpoint, it works
+    await anyio.sleep(0)
+    assert has_portal()
+    assert has_portal(greenback._impl.current_task())
+    await_(anyio.sleep(0))
 
 
 async def test_no_context_leakage():
@@ -260,7 +272,7 @@ def test_misuse():
 
     @trio.run
     async def wrong_library():
-        sniffio.current_async_library_cvar.set("tokio")
+        sniffio.thread_local.name = "tokio"
         with pytest.raises(RuntimeError, match="greenback does not support tokio"):
             greenback.await_(trio.sleep(1))
 
@@ -320,7 +332,7 @@ async def test_portal_map_does_not_leak(library):
     for _ in range(4):
         gc.collect()
 
-    assert not greenback._impl.task_has_portal
+    assert not greenback._impl.task_portals
 
 
 async def test_awaitable(library):
@@ -409,3 +421,29 @@ async def test_uncleanable_traceback(library):
     # One frame for the call here, one frame where await_ calls send(),
     # one where outcome.send() discovers it can't call our send()
     assert len(info.traceback) == 3
+
+
+async def test_double_greenlet(library):
+    # Make sure await_ works even if you run it inside some other greenlet.
+    # Regression test for https://github.com/oremanj/greenback/issues/22
+
+    async def inner_fn(middle_gr):
+        for i in range(10):
+            await anyio.sleep(0)
+            assert f"resume {i + 1}" == middle_gr.switch(i)
+        return "success"
+
+    def middle_fn():
+        inner_gr = greenlet.greenlet(greenback.await_)
+        assert 0 == inner_gr.switch(inner_fn(greenlet.getcurrent()))
+        for i in range(1, 10):
+            assert i == inner_gr.switch(f"resume {i}")
+            assert not inner_gr.dead
+        assert "success" == inner_gr.switch("resume 10")
+        assert inner_gr.dead
+
+    async def middle_fn_async():
+        middle_fn()
+
+    await greenback.with_portal_run(middle_fn_async)
+    await greenback.with_portal_run_sync(middle_fn)

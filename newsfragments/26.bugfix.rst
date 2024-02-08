@@ -1,7 +1,0 @@
-:func:`greenback.has_portal` now returns False if run in a task that has called
-:func:`greenback.bestow_portal` on itself but has not yet made the portal
-usable by executing a checkpoint. This reflects the fact that
-:func:`greenback.await_` in such a task will fail. The exception message for
-such an :func:`~greenback.await_` failure has also been updated to more
-precisely describe the problem, rather than the previous generic "you must
-create a portal first".

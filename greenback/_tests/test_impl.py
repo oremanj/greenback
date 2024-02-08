@@ -272,9 +272,12 @@ def test_misuse():
 
     @trio.run
     async def wrong_library():
-        sniffio.thread_local.name = "tokio"
-        with pytest.raises(RuntimeError, match="greenback does not support tokio"):
-            greenback.await_(trio.sleep(1))
+        old_name, sniffio.thread_local.name = sniffio.thread_local.name, "tokio"
+        try:
+            with pytest.raises(RuntimeError, match="greenback does not support tokio"):
+                greenback.await_(trio.sleep(1))
+        finally:
+            sniffio.thread_local.name = old_name
 
     @trio.run
     async def not_awaitable():

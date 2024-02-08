@@ -63,7 +63,7 @@ jobs:
         extra_name: ['']
         old_greenlet: ['0']
         include:
-          - python: '3.9'
+          - python: '3.12'
             check_lint: '1'
             extra_name: ', formatting and linting'
           - python: '3.8'

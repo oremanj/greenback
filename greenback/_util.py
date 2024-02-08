@@ -122,7 +122,7 @@ class async_context(Generic[T]):
                     f"{type(self._cm).__name__!r} object does not support the "
                     "asynchronous context manager protocol (missed __aexit__ method)"
                 ) from None
-            return await_(aenter(self._cm))
+            return await_(aenter(self._cm))  # type: ignore
 
     else:
 

@@ -79,12 +79,12 @@ def trampoline(
     this_greenlet = greenlet.getcurrent()
     while True:
         # StopIteration or other exceptions will escape from this function
-        next_yield = next_send.send(orig_coro)
+        next_yield: Any = next_send.send(orig_coro)  # type: ignore
         next_send = portal_greenlet.switch((next_yield, this_greenlet))
 
 
 @types.coroutine
-def async_yield_ready():
+def async_yield_ready() -> Generator[Any, Any, Any]:
     return (yield "ready")
 
 
@@ -325,7 +325,7 @@ def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
 def get_aio_task_coro(task: "asyncio.Task[Any]") -> Coroutine[Any, Any, Any]:
     try:
         # Public API in 3.8+
-        return task.get_coro()  # type: ignore  # (defined as returning Any)
+        return task.get_coro()  # (defined as returning Any)
     except AttributeError:
         return task._coro  # type: ignore  # (not in typeshed)
 
@@ -530,9 +530,10 @@ async def with_portal_run(
         return await async_fn(*args, **kwds)
     task_portals[this_task] = greenlet.getcurrent()
     try:
-        res: T = await _greenback_shim(
-            async_fn(*args, **kwds), outcome.Value(None)
-        )  # type: ignore
+        coro = async_fn(*args, **kwds)
+        if not isinstance(coro, collections.abc.Coroutine):
+            coro = adapt_awaitable(coro)
+        res: T = await _greenback_shim(coro, outcome.Value(None))
         return res
     finally:
         del task_portals[this_task]

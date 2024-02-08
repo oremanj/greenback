@@ -5,6 +5,38 @@ Release history
 
 .. towncrier release notes start
 
+greenback 1.2.0 (2024-02-07)
+----------------------------
+
+With this release, greenback now requires at least Python 3.8.
+
+Features
+~~~~~~~~
+
+- greenback's internals have been reorganized to improve the performance of
+  executing ordinary checkpoints (``await`` statements, approximately) in
+  a task that has a greenback portal active. On the author's laptop with
+  CPython 3.12, the overhead is only about one microsecond compared to the
+  performance without greenback involved, versus four microseconds before
+  this change. For comparison, the non-greenback cost of executing a
+  checkpoint is 12-13 microseconds. (`#26 <https://github.com/oremanj/greenback/issues/26>`__)
+
+Bugfixes
+~~~~~~~~
+
+- greenback now properly handles cases where a task spawns another greenlet
+  (not managed by greenback) that in turn calls :func:`greenback.await_`.
+  This improves interoperability with other greenback-like systems that do not
+  use the greenback library, such as SQLAlchemy's async ORM support. (`#22 <https://github.com/oremanj/greenback/issues/22>`__)
+- :func:`greenback.has_portal` now returns False if run in a task that has called
+  :func:`greenback.bestow_portal` on itself but has not yet made the portal
+  usable by executing a checkpoint. This reflects the fact that
+  :func:`greenback.await_` in such a task will fail. The exception message for
+  such an :func:`~greenback.await_` failure has also been updated to more
+  precisely describe the problem, rather than the previous generic "you must
+  create a portal first". (`#26 <https://github.com/oremanj/greenback/issues/26>`__)
+
+
 greenback 1.1.2 (2023-12-28)
 ----------------------------
 

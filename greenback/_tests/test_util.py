@@ -3,7 +3,7 @@ import gc
 import pytest
 import sys
 import trio
-from async_generator import asynccontextmanager
+from contextlib import asynccontextmanager
 
 from .._impl import ensure_portal, has_portal
 from .._util import autoawait, async_context, async_iter, decorate_as_sync

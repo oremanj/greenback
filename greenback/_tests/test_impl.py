@@ -70,7 +70,14 @@ async def test_complex(library):
 
 
 async def test_with_portal_run(library):
-    for test in (test_simple, test_complex):
+    class Awaitable:
+        def __init__(self, library):
+            self.library = library
+
+        def __await__(self):
+            return test_simple(self.library).__await__()
+
+    for test in (test_simple, test_complex, Awaitable):
         await greenback.with_portal_run(test, library)
         await greenback.with_portal_run(greenback.with_portal_run, test, library)
         with pytest.raises(RuntimeError, match="greenback.ensure_portal"):

@@ -322,14 +322,6 @@ def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
         raise RuntimeError(f"greenback does not support {library}")
 
 
-def get_aio_task_coro(task: "asyncio.Task[Any]") -> Coroutine[Any, Any, Any]:
-    try:
-        # Public API in 3.8+
-        return task.get_coro()  # (defined as returning Any)
-    except AttributeError:
-        return task._coro  # type: ignore  # (not in typeshed)
-
-
 def _aligned_ptr_offset_in_object(obj: object, referent: object) -> Optional[int]:
     """Return the byte offset in the C representation of *obj* (an
     arbitrary Python object) at which is found a naturally-aligned
@@ -365,7 +357,7 @@ def set_aio_task_coro(
     global aio_task_coro_c_offset
     import ctypes
 
-    old_coro = get_aio_task_coro(task)
+    old_coro = task.get_coro()
 
     if aio_task_coro_c_offset is None:
         # Deduce the offset by scanning the task object representation
@@ -417,7 +409,7 @@ def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> Non
         import asyncio
 
         assert isinstance(task, asyncio.Task)
-        shim_coro = greenback_shim(task, get_aio_task_coro(task))
+        shim_coro = greenback_shim(task, task.get_coro())
         commit = partial(set_aio_task_coro, task, shim_coro)
 
     # Step it once so it's ready to get resumed by the event loop

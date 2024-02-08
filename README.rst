@@ -9,8 +9,8 @@ greenback: reenter an asyncio or Trio event loop from synchronous code
    :target: https://greenback.readthedocs.io/en/latest/?badge=latest
    :alt: Documentation status
 
-.. image:: https://travis-ci.org/oremanj/greenback.svg?branch=master
-   :target: https://travis-ci.org/oremanj/greenback
+.. image:: https://github.com/oremanj/greenback/actions/workflows/ci.yml/badge.svg
+   :target: https://github.com/oremanj/greenback/actions/workflows/ci.yml
    :alt: Automated test status
 
 .. image:: https://codecov.io/gh/oremanj/greenback/branch/master/graph/badge.svg
@@ -33,7 +33,7 @@ framework such as ``asyncio`` or `Trio
 over previous approaches to concurrency: they scale better than threads and are
 `clearer about control flow <https://glyph.twistedmatrix.com/2014/02/unyielding.html>`__
 than the implicit cooperative multitasking provided by ``gevent``. They're also being
-actively developed to explore some `exciting new ideas about concurrent programming
+actively developed to explore some `new ideas about concurrent programming
 <https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/>`__.
 
 Porting an existing codebase to ``async``/``await`` syntax can be
@@ -161,8 +161,8 @@ produced by the ``await``.
 
 **Should I trust this in production?** Maybe; try it and see. The
 technique is rather low-level, and has some minor
-`performance implications <https://greenback.readthedocs.io/en/latest/principle.html#performance>`__ (any task in which you call ``await
-greenback.ensure_portal()`` will run a bit slower), but we're in
+`performance implications <https://greenback.readthedocs.io/en/latest/principle.html#performance>`__ (any task in which you call
+``await greenback.ensure_portal()`` will run a bit slower), but we're in
 good company: SQLAlchemy's async ORM support is implemented in much
 the same way.  ``greenback`` itself is a fairly small amount of
 pure-Python code on top of ``greenlet``. (There is one small usage of

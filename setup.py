@@ -17,7 +17,7 @@ setup(
     include_package_data=True,
     install_requires=["greenlet != 0.4.17", "sniffio", "outcome"],
     keywords=["async", "io", "trio", "asyncio"],
-    python_requires=">=3.6",
+    python_requires=">=3.8",
     classifiers=[
         "License :: OSI Approved :: MIT License",
         "License :: OSI Approved :: Apache Software License",

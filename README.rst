@@ -63,7 +63,7 @@ below. This is potentially useful in a number of different situations:
 * You can (cautiously) design async APIs that block in places where
   you can't write ``await``, such as on attribute accesses.
 
-``greenback`` requires Python 3.6 or later and an implementation that
+``greenback`` requires Python 3.8 or later and an implementation that
 supports the ``greenlet`` library. Either CPython or PyPy should work.
 There are no known OS dependencies.
 

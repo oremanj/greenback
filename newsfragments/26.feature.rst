@@ -1,0 +1,7 @@
+greenback's internals have been reorganized to improve the performance of
+executing ordinary checkpoints (``await`` statements, approximately) in
+a task that has a greenback portal active. On the author's laptop with
+CPython 3.12, the overhead is only about one microsecond compared to the
+performance without greenback involved, versus four microseconds before
+this change. For comparison, the non-greenback cost of executing a
+checkpoint is 12-13 microseconds.

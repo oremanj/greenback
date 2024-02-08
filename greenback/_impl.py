@@ -13,7 +13,7 @@ from typing import (
     Coroutine,
     Dict,
     Generator,
-    MutableSet,
+    MutableMapping,
     Optional,
     TypeVar,
     Union,
@@ -35,11 +35,19 @@ except ImportError:  # pragma: no cover
 
 T = TypeVar("T")
 
-# Set of tasks (trio.lowlevel.Task or asyncio.Task) that have a "greenback
-# portal" installed, via any of the *_portal() functions. When running,
-# these tasks can send event loop traps to greenlet.getcurrent().parent
-# in order to yield them to the event loop.
-task_has_portal: MutableSet[object] = weakref.WeakSet()
+# Dictionary whose keys are tasks (trio.lowlevel.Task or asyncio.Task)
+# that have a "greenback portal" installed, via any of the *_portal()
+# functions, and whose values are the corresponding greenlets that implement
+# the portal. When running, these tasks can send event loop traps to their
+# portal greenlet in order to yield them to the event loop.
+#
+# Immediately after a task has been portalized, but before its first tick
+# runs, its value in this mapping will be None, because we don't yet know
+# which greenlet is running its greenback_shim coroutine. That's fine because
+# we can't reach an await_ in the new task until its first tick runs.
+task_portals: MutableMapping[object, Optional[greenlet.greenlet]] = (
+    weakref.WeakKeyDictionary()
+)
 
 # The offset of asyncio.Task._coro in the Task object memory layout, if
 # asyncio.Task is implemented in C (which it generally is on CPython 3.6+).
@@ -57,19 +65,64 @@ greenlet_needs_context_fixup: bool = contextvars is not None and getattr(
 )
 
 
-async def greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Any:
+def trampoline(
+    portal_greenlet: greenlet.greenlet,
+    orig_coro: Coroutine[Any, Any, Any],
+    next_send: outcome.Outcome[Any],
+) -> Any:
+    """Smooths over the interface differences between an event loop trap
+    encountered during an await_() and one encountered during a native await.
+    Run this function as the target of a greenlet; it will send (event loop
+    trap, greenlet to resume) tuples to the `portal_greenlet` and resume the
+    `orig_coro` with the outcomes sent back in reply.
+    """
+    this_greenlet = greenlet.getcurrent()
+    while True:
+        # StopIteration or other exceptions will escape from this function
+        next_yield: Any = next_send.send(orig_coro)  # type: ignore
+        next_send = portal_greenlet.switch((next_yield, this_greenlet))
+
+
+@types.coroutine
+def async_yield_ready() -> Generator[Any, Any, Any]:
+    return (yield "ready")
+
+
+async def greenback_shim(task: object, orig_coro: Coroutine[Any, Any, Any]) -> Any:
     """When a task has called ensure_portal(), its coroutine object is a coroutine
     for this function. This function then invokes each step of the task's original
     coroutine in a context that allows suspending via greenlet.
     """
-    # This wrapper ensures that the top-level task coroutine is actually a coroutine,
-    # not a generator. Some Trio introspection tools care about the difference, as
-    # does anyio.
-    return await _greenback_shim(orig_coro)  # type: ignore
+
+    # This wrapper serves two purposes:
+    #
+    # - It ensures that the top-level task coroutine is actually a coroutine,
+    #   not a generator. Some Trio introspection tools care about the
+    #   difference, as does anyio.
+    #
+    # - It yields a sentinel value as its first action, so that it is then
+    #   ready to be resumed with something meaningful. This resolves an
+    #   impedance mismatch: the first send into a new coroutine object must
+    #   be None, but the next send into an already-running task might not
+    #   want to be None.
+    #
+    # Portalizing an already-running task (bestow_portal(), ensure_portal())
+    # uses this wrapper. Creating a portal around a new function
+    # (with_portal_run(), with_portal_run_tree()) uses the inner
+    # _greenback_shim directly.
+
+    next_send = await outcome.acapture(async_yield_ready)
+    task_portals[task] = greenlet.getcurrent()
+    try:
+        return await _greenback_shim(orig_coro, next_send)  # type: ignore
+    finally:
+        del task_portals[task]
 
 
 @types.coroutine
-def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, Any]:
+def _greenback_shim(
+    orig_coro: Coroutine[Any, Any, Any], next_send: outcome.Outcome[Any]
+) -> Generator[Any, Any, Any]:
     # In theory this could be written as a simpler function that uses
     # _greenback_shim_sync():
     #
@@ -88,77 +141,77 @@ def _greenback_shim(orig_coro: Coroutine[Any, Any, Any]) -> Generator[Any, Any, 
     # has a hard time raising StopIteration, because it's a generator,
     # and unrolling it into a non-generator iterable makes it slower.
     # So we'll accept a bit of code duplication.
-    parent_greenlet: greenlet.greenlet
 
-    # The greenlet in which each send() or throw() call will occur.
-    child_greenlet: Optional[greenlet.greenlet] = None
+    # The greenlet running this _greenback_shim function, which implements
+    # the portal. We receive tuples (event loop trap, greenlet to resume
+    # with result of yielding this trap) and pass them through our parent
+    # event loop / coroutine runner.
+    portal_greenlet = greenlet.getcurrent()
+
+    # The greenlet running orig_coro, which uses the portal. We wrap it
+    # in a trampoline() helper function, defined above, in order to simplify
+    # the control flow. This way we only have to create one greenlet per
+    # portal, instead of one per event loop trap that uses the portal; this
+    # improves efficiency.
+    child_greenlet = greenlet.greenlet(partial(trampoline, portal_greenlet, orig_coro))
+
+    # The greenlet to which we will send the next thing our event loop
+    # sends us. This is initially the child_greenlet, but if the child_greenlet
+    # starts its own nested child greenlets and those want to use await_(),
+    # they'll be able to. Distinguishing resume_greenlet from child_greenlet
+    # is important for interoperability with other greenback-like systems,
+    # such as sqlalchemy's async ORM support.
+    resume_greenlet = child_greenlet
 
     # The contextvars.Context that we have most recently seen as active
     # for this task and propagated to child_greenlet
     curr_ctx: Optional[contextvars.Context] = None
 
-    # The next thing we plan to yield to the event loop. (The first yield
-    # goes to ensure_portal() rather than to the event loop, so we use a
-    # string that is unlikely to be a valid event loop trap.)
-    next_yield: Any = "ready"
-
-    # The next thing we plan to send to the original coroutine. This is an
-    # outcome representing the value or error that the event loop resumed
-    # us with.
-    next_send: outcome.Outcome[Any]
     while True:
+        if (
+            greenlet_needs_context_fixup
+            and portal_greenlet.gr_context is not curr_ctx
+            and child_greenlet.gr_context is curr_ctx
+        ):
+            # Make sure the child greenlet's contextvars context
+            # is the same as our own, even if our own context
+            # changes (such as via trio.Task.context assignment),
+            # unless the child greenlet appears to have changed
+            # its context privately through a call to Context.run().
+            #
+            # We only fix up our immediate child. If it spawns its own
+            # grandchild greenlet(s), it's responsible for propagating
+            # contextvars to those.
+            #
+            # Note 'portal_greenlet.gr_context' here is just a
+            # portable way of getting the current contextvars
+            # context, which is not exposed by the contextvars
+            # module directly (copy_context() returns a copy, not
+            # a new reference to the original).  Upon initial
+            # creation of child_greenlet, curr_ctx and
+            # child_greenlet.gr_context will both be None, so this
+            # condition works for that case too.
+            child_greenlet.gr_context = curr_ctx = portal_greenlet.gr_context
+
+        try:
+            # Forward the event loop's resumption message into our child.
+            # It will proceed until the next event loop trap and send us
+            # that trap + the identity of the greenlet that reached the trap;
+            # the latter is so we can resume the correct greenlet next time
+            # in case of nested child greenlets.
+            next_yield, resume_greenlet = resume_greenlet.switch(next_send)
+        except StopIteration as ex:
+            # The underlying coroutine completed, so we forward its return value.
+            return ex.value
+        # If the underlying coroutine raises any other exception, it will
+        # propagate out of _greenback_shim, which is what we want.
+
         try:
             # Normally we send to orig_coro whatever the event loop sent us
             next_send = outcome.Value((yield next_yield))
         except BaseException as ex:
             # If the event loop resumed us with an error, we forward that error
             next_send = outcome.Error(ex)
-        try:
-            if not child_greenlet:
-                # It is important that we delay the parent_greenlet fetch until
-                # we actually create the child_greenlet. Otherwise, we will inherit
-                # whatever greenlet is active when bestow_portal() is called, which
-                # messes up the context fixup below.
-                parent_greenlet = greenlet.getcurrent()
-                # Start a new send() or throw() call on the original coroutine.
-                child_greenlet = greenlet.greenlet(next_send.send)
-                switch_arg: Any = orig_coro
-            else:
-                # Resume the previous send() or throw() call, which is currently
-                # at a simulated yield point in a greenback.await_() call.
-                switch_arg = next_send
-
-            if (
-                greenlet_needs_context_fixup
-                and parent_greenlet.gr_context is not curr_ctx
-                and child_greenlet.gr_context is curr_ctx
-            ):
-                # Make sure the child greenlet's contextvars context
-                # is the same as our own, even if our own context
-                # changes (such as via trio.Task.context assignment),
-                # unless the child greenlet appears to have changed
-                # its context privately through a call to Context.run().
-                #
-                # Note 'parent_greenlet.gr_context' here is just a
-                # portable way of getting the current contextvars
-                # context, which is not exposed by the contextvars
-                # module directly (copy_context() returns a copy, not
-                # a new reference to the original).  Upon initial
-                # creation of child_greenlet, curr_ctx and
-                # child_greenlet.gr_context will both be None, so this
-                # condition works for that case too.
-                child_greenlet.gr_context = curr_ctx = parent_greenlet.gr_context
-
-            next_yield = child_greenlet.switch(switch_arg)
-            if child_greenlet.dead:
-                # The send() or throw() call completed so we need to
-                # create a new greenlet for the next one.
-                child_greenlet = curr_ctx = None
-        except StopIteration as ex:
-            # The underlying coroutine completed, so we forward its return value.
-            return ex.value
-        # If the underlying coroutine terminated with an exception, it will
-        # propagate out of greenback_shim, which is what we want.
 
 
 @types.coroutine
@@ -166,19 +219,23 @@ def _greenback_shim_sync(target: Callable[[], Any]) -> Generator[Any, Any, Any]:
     """Run target(), forwarding the event loop traps and responses necessary
     to implement any await_() calls that it makes.
 
-    This is only a little bit faster than using greenback_shim() plus a
-    sync-to-async wrapper -- maybe 2us faster for the entire call,
-    so it only matters when you're scoping the portal to a very small
-    range. We ship it anyway because it's easier to understand than
+    This gives a nice speed boost over using greenback_shim() plus a
+    sync-to-async wrapper (6 microseconds to create a sync portal versus
+    16 for async, on the author's machine), though that's probably only
+    relevant when you're scoping the portal to a very small range.
+    We ship it anyway because it's easier to understand than
     the async-compatible _greenback_shim(), and helps with understanding
     the latter.
     """
 
-    parent_greenlet = greenlet.getcurrent()
+    portal_greenlet = greenlet.getcurrent()
     curr_ctx = None
 
     # The greenlet in which we run target().
     child_greenlet = greenlet.greenlet(target)
+
+    # The greenlet currently suspended in await_()
+    resume_greenlet = child_greenlet
 
     # The next thing we plan to yield to the event loop.
     next_yield: Any
@@ -191,7 +248,7 @@ def _greenback_shim_sync(target: Callable[[], Any]) -> Generator[Any, Any, Any]:
     while True:
         if (
             greenlet_needs_context_fixup
-            and parent_greenlet.gr_context is not curr_ctx
+            and portal_greenlet.gr_context is not curr_ctx
             and child_greenlet.gr_context is curr_ctx
         ):
             # Make sure the child greenlet's contextvars context
@@ -200,7 +257,11 @@ def _greenback_shim_sync(target: Callable[[], Any]) -> Generator[Any, Any, Any]:
             # unless the child greenlet appears to have changed
             # its context privately through a call to Context.run().
             #
-            # Note 'parent_greenlet.gr_context' here is just a
+            # We only fix up our immediate child. If it spawns its own
+            # grandchild greenlet(s), it's responsible for propagating
+            # contextvars to those.
+            #
+            # Note 'portal_greenlet.gr_context' here is just a
             # portable way of getting the current contextvars
             # context, which is not exposed by the contextvars
             # module directly (copy_context() returns a copy, not
@@ -208,20 +269,29 @@ def _greenback_shim_sync(target: Callable[[], Any]) -> Generator[Any, Any, Any]:
             # creation of child_greenlet, curr_ctx and
             # child_greenlet.gr_context will both be None, so this
             # condition works for that case too.
-            child_greenlet.gr_context = curr_ctx = parent_greenlet.gr_context
+            child_greenlet.gr_context = curr_ctx = portal_greenlet.gr_context
 
+        # Forward the event loop's resumption message into our child.
+        # It will proceed until the next event loop trap and send us
+        # that trap + the identity of the greenlet that reached the trap;
+        # the latter is so we can resume the correct greenlet next time
+        # in case of nested child greenlets.
         if next_send is None:
-            next_yield = child_greenlet.switch()
+            request = resume_greenlet.switch()
         else:
-            next_yield = child_greenlet.switch(next_send)
+            request = resume_greenlet.switch(next_send)
+
         if child_greenlet.dead:
-            # target() returned, so next_yield is its return value, not an
-            # event loop trap. (If it exits with an exception, that exception
-            # will propagate out of switch() and thus out of the loop, which
-            # is what we want.)
-            return next_yield
+            # target() returned, so `request` is its return value, rather than
+            # a (next_yield, resume_greenlet) tuple. (If target() exits with an
+            # exception, that exception will propagate out of switch() and thus
+            # out of the loop, which is what we want.)
+            return request
+
+        next_yield, resume_greenlet = request
+
         try:
-            # Normally we send to orig_coro whatever the event loop sent us
+            # Normally we send target() whatever the event loop sent us
             next_send = outcome.Value((yield next_yield))
         except BaseException as ex:
             # If the event loop resumed us with an error, we forward that error
@@ -250,14 +320,6 @@ def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
         return task
     else:
         raise RuntimeError(f"greenback does not support {library}")
-
-
-def get_aio_task_coro(task: "asyncio.Task[Any]") -> Coroutine[Any, Any, Any]:
-    try:
-        # Public API in 3.8+
-        return task.get_coro()  # type: ignore  # (defined as returning Any)
-    except AttributeError:
-        return task._coro  # type: ignore  # (not in typeshed)
 
 
 def _aligned_ptr_offset_in_object(obj: object, referent: object) -> Optional[int]:
@@ -295,7 +357,7 @@ def set_aio_task_coro(
     global aio_task_coro_c_offset
     import ctypes
 
-    old_coro = get_aio_task_coro(task)
+    old_coro = task.get_coro()
 
     if aio_task_coro_c_offset is None:
         # Deduce the offset by scanning the task object representation
@@ -328,7 +390,7 @@ def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> Non
     control to the event loop.
     """
 
-    if task in task_has_portal:
+    if task in task_portals:
         # This task already has a greenback shim; nothing to do.
         return
 
@@ -341,13 +403,13 @@ def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> Non
                 from trio.hazmat import Task
 
         assert isinstance(task, Task)
-        shim_coro = greenback_shim(task.coro)
+        shim_coro = greenback_shim(task, task.coro)
         commit: Callable[[], None] = partial(setattr, task, "coro", shim_coro)
     else:
         import asyncio
 
         assert isinstance(task, asyncio.Task)
-        shim_coro = greenback_shim(get_aio_task_coro(task))
+        shim_coro = greenback_shim(task, task.get_coro())
         commit = partial(set_aio_task_coro, task, shim_coro)
 
     # Step it once so it's ready to get resumed by the event loop
@@ -358,9 +420,10 @@ def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> Non
     # original task coroutine
     commit()
 
-    # Enable greenback.await_() in this task, since all of its future steps
-    # will run under the greenback shim
-    task_has_portal.add(task)
+    # Note that this task has been portalized so we don't try to do it again.
+    # Its parent greenlet (the value in this mapping) will be set on its
+    # next tick, enabling greenback.await_() for this task.
+    task_portals[task] = None
 
 
 async def ensure_portal() -> None:
@@ -388,7 +451,7 @@ async def ensure_portal() -> None:
     """
 
     this_task = current_task()
-    if this_task not in task_has_portal:
+    if this_task not in task_portals:
         bestow_portal(this_task)
 
     # Execute a checkpoint so that we're now running inside the shim coroutine.
@@ -405,12 +468,30 @@ def has_portal(
     :func:`greenback.await_`, false otherwise. If no *task* is
     specified, query the currently executing task.
     """
+    if task is not None and task_portals.get(task) is not None:
+        return True
+
+    try:
+        this_task = current_task()
+    except (RuntimeError, sniffio.AsyncLibraryNotFoundError):
+        this_task = None
+
     if task is None:
-        try:
-            task = current_task()
-        except (RuntimeError, sniffio.AsyncLibraryNotFoundError):
+        task = this_task
+        if task is None:
             return False
-    return task in task_has_portal
+
+    if task is this_task:
+        # For the currently running task, an entry in task_portals
+        # with value None means a portal has been bestowed but won't
+        # be active until the next checkpoint. The answer to "can I run
+        # await_()" in that case is therefore "no".
+        return task_portals.get(task) is not None
+    else:
+        # For a task that's not currently running, even an inactive portal
+        # will be activated before the task can do anything, so we return
+        # True here.
+        return task in task_portals
 
 
 async def with_portal_run(
@@ -437,16 +518,17 @@ async def with_portal_run(
     """
 
     this_task = current_task()
-    if this_task in task_has_portal:
+    if this_task in task_portals:
         return await async_fn(*args, **kwds)
-    shim_coro = _greenback_shim(async_fn(*args, **kwds))  # type: ignore
-    assert shim_coro.send(None) == "ready"
-    task_has_portal.add(this_task)
+    task_portals[this_task] = greenlet.getcurrent()
     try:
-        res: T = await shim_coro
+        coro = async_fn(*args, **kwds)
+        if not isinstance(coro, collections.abc.Coroutine):
+            coro = adapt_awaitable(coro)
+        res: T = await _greenback_shim(coro, outcome.Value(None))
         return res
     finally:
-        task_has_portal.remove(this_task)
+        del task_portals[this_task]
 
 
 async def with_portal_run_sync(sync_fn: Callable[..., T], *args: Any, **kwds: Any) -> T:
@@ -468,14 +550,14 @@ async def with_portal_run_sync(sync_fn: Callable[..., T], *args: Any, **kwds: An
     """
 
     this_task = current_task()
-    if this_task in task_has_portal:
+    if this_task in task_portals:
         return sync_fn(*args, **kwds)
-    task_has_portal.add(this_task)
+    task_portals[this_task] = greenlet.getcurrent()
     try:
         res: T = await _greenback_shim_sync(partial(sync_fn, *args, **kwds))
         return res
     finally:
-        task_has_portal.remove(this_task)
+        del task_portals[this_task]
 
 
 if TYPE_CHECKING:
@@ -570,7 +652,7 @@ async def with_portal_run_tree(
     elif this_task in instrument.tasks:
         # We're already inside another call to with_portal_run_tree(), so nothing
         # more needs to be done
-        assert this_task in task_has_portal
+        assert this_task in task_portals
         return await async_fn(*args, **kwds)
 
     # Store our current nursery depth. This allows the instrument to
@@ -607,11 +689,22 @@ def await_(aw: Awaitable[T]) -> T:
     """
     try:
         task = current_task()
-        if task not in task_has_portal:
-            raise RuntimeError(
-                "you must 'await greenback.ensure_portal()' in this task first"
-            ) from None
-        gr = greenlet.getcurrent().parent
+        portal_greenlet = task_portals.get(task, None)
+        if portal_greenlet is None:
+            if task in task_portals:
+                library = sniffio.current_async_library()
+                raise RuntimeError(
+                    f"You must yield to the event loop (try 'await {library}."
+                    "sleep(0)') after calling 'greenback.bestow_portal()' on "
+                    "the current task before using the portal"
+                )
+            else:
+                raise RuntimeError(
+                    "You must create a greenback portal for this task in order "
+                    "to use 'greenback.await_()'. Try 'await "
+                    "greenback.ensure_portal()' or "
+                    "'await greenback.with_portal_run(some_fn, *args)'."
+                )
     except BaseException:
         if isinstance(aw, collections.abc.Coroutine):
             # Suppress the "coroutine was never awaited" warning
@@ -628,6 +721,7 @@ def await_(aw: Awaitable[T]) -> T:
 
     # Step through the coroutine until it's exhausted, sending each trap
     # into the portal for the event loop to process.
+    this_greenlet = greenlet.getcurrent()
     next_send: outcome.Outcome[Any] = outcome.Value(None)
     while True:
         try:
@@ -658,4 +752,4 @@ def await_(aw: Awaitable[T]) -> T:
 
         # next_send is an outcome.Outcome representing the value or error
         # with which the event loop wants to resume the task
-        next_send = gr.switch(next_yield)
+        next_send = portal_greenlet.switch((next_yield, this_greenlet))

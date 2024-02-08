@@ -38,8 +38,7 @@ def autoawait(fn: Callable[..., Awaitable[T]]) -> Callable[..., T]:
 # For signature-preserving decorators we can declare the result as
 # signature-preserving too, and catch the case where the inner function isn't async
 @overload
-def decorate_as_sync(decorator: Callable[[F], F]) -> Callable[[AF], AF]:
-    ...
+def decorate_as_sync(decorator: Callable[[F], F]) -> Callable[[AF], AF]: ...
 
 
 # For non-signature-preserving, all we can do is say the inner function and
@@ -48,8 +47,7 @@ def decorate_as_sync(decorator: Callable[[F], F]) -> Callable[[AF], AF]:
 @overload
 def decorate_as_sync(
     decorator: Callable[..., Any]
-) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
-    ...
+) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]: ...
 
 
 def decorate_as_sync(decorator: Any) -> Any:
@@ -124,7 +122,7 @@ class async_context(Generic[T]):
                     f"{type(self._cm).__name__!r} object does not support the "
                     "asynchronous context manager protocol (missed __aexit__ method)"
                 ) from None
-            return await_(aenter(self._cm))
+            return await_(aenter(self._cm))  # type: ignore
 
     else:
 

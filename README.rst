@@ -95,6 +95,8 @@ Example
 
 Suppose you start with this async-unaware program::
 
+.. code-block:: python
+
     import subprocess
 
     def main():
@@ -117,6 +119,8 @@ Suppose you start with this async-unaware program::
 
 Using ``greenback``, you can change it to run in a Trio event loop by
 changing only the top and bottom layers, with no change to ``print_fact()``. ::
+
+.. code-block:: python
 
     import trio
     import greenback

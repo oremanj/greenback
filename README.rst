@@ -93,7 +93,7 @@ Quickstart
 Example
 -------
 
-Suppose you start with this async-unaware program::
+Suppose you start with this async-unaware program:
 
 .. code-block:: python
 
@@ -118,7 +118,7 @@ Suppose you start with this async-unaware program::
         main()
 
 Using ``greenback``, you can change it to run in a Trio event loop by
-changing only the top and bottom layers, with no change to ``print_fact()``. ::
+changing only the top and bottom layers, with no change to ``print_fact()``.
 
 .. code-block:: python
 

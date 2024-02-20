@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 from functools import wraps
 from typing import (
@@ -9,7 +11,6 @@ from typing import (
     Awaitable,
     Callable,
     Generic,
-    Optional,
     TypeVar,
     cast,
     overload,
@@ -136,7 +137,7 @@ class async_context(Generic[T]):
             aenter = type(self._cm).__aenter__
             return await_(aenter(self._cm))  # type: ignore
 
-    def __exit__(self, *exc: Any) -> Optional[bool]:
+    def __exit__(self, *exc: Any) -> bool | None:
         return await_(self._aexit(self._cm, *exc))  # type: ignore
 
 

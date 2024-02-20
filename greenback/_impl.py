@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections
 import greenlet  # type: ignore
 import outcome
@@ -11,12 +13,9 @@ from typing import (
     Awaitable,
     Callable,
     Coroutine,
-    Dict,
     Generator,
     MutableMapping,
-    Optional,
     TypeVar,
-    Union,
     TYPE_CHECKING,
 )
 
@@ -45,14 +44,14 @@ T = TypeVar("T")
 # runs, its value in this mapping will be None, because we don't yet know
 # which greenlet is running its greenback_shim coroutine. That's fine because
 # we can't reach an await_ in the new task until its first tick runs.
-task_portals: MutableMapping[object, Optional[greenlet.greenlet]] = (
+task_portals: MutableMapping[object, greenlet.greenlet | None] = (
     weakref.WeakKeyDictionary()
 )
 
 # The offset of asyncio.Task._coro in the Task object memory layout, if
 # asyncio.Task is implemented in C (which it generally is on CPython 3.6+).
 # This is determined dynamically when it is first needed.
-aio_task_coro_c_offset: Optional[int] = None
+aio_task_coro_c_offset: int | None = None
 
 # If True, we need to configure greenlet to preserve our
 # contextvars context when we switch greenlets. (Older versions
@@ -165,7 +164,7 @@ def _greenback_shim(
 
     # The contextvars.Context that we have most recently seen as active
     # for this task and propagated to child_greenlet
-    curr_ctx: Optional[contextvars.Context] = None
+    curr_ctx: contextvars.Context | None = None
 
     while True:
         if (
@@ -243,7 +242,7 @@ def _greenback_shim_sync(target: Callable[[], Any]) -> Generator[Any, Any, Any]:
     # The next thing we plan to send via greenlet.switch(). This is an
     # outcome representing the value or error that the event loop resumed
     # us with. Initially None for the very first zero-argument switch().
-    next_send: Optional[outcome.Outcome[Any]] = None
+    next_send: outcome.Outcome[Any] | None = None
 
     while True:
         if (
@@ -298,7 +297,7 @@ def _greenback_shim_sync(target: Callable[[], Any]) -> Generator[Any, Any, Any]:
             next_send = outcome.Error(ex)
 
 
-def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
+def current_task() -> trio.lowlevel.Task | asyncio.Task[Any]:
     library = sniffio.current_async_library()
     if library == "trio":
         try:
@@ -322,7 +321,7 @@ def current_task() -> Union["trio.lowlevel.Task", "asyncio.Task[Any]"]:
         raise RuntimeError(f"greenback does not support {library}")
 
 
-def _aligned_ptr_offset_in_object(obj: object, referent: object) -> Optional[int]:
+def _aligned_ptr_offset_in_object(obj: object, referent: object) -> int | None:
     """Return the byte offset in the C representation of *obj* (an
     arbitrary Python object) at which is found a naturally-aligned
     pointer that points to *referent*.  If *search_for*
@@ -339,7 +338,7 @@ def _aligned_ptr_offset_in_object(obj: object, referent: object) -> Optional[int
 
 
 def set_aio_task_coro(
-    task: "asyncio.Task[Any]", new_coro: Coroutine[Any, Any, Any]
+    task: asyncio.Task[Any], new_coro: Coroutine[Any, Any, Any]
 ) -> None:
     try:
         task._coro = new_coro  # type: ignore
@@ -381,7 +380,7 @@ def set_aio_task_coro(
     _ctypes.Py_DECREF(old_coro)  # type: ignore
 
 
-def bestow_portal(task: Union["trio.lowlevel.Task", "asyncio.Task[Any]"]) -> None:
+def bestow_portal(task: trio.lowlevel.Task | asyncio.Task[Any]) -> None:
     """Ensure that the given async *task* is able to use :func:`greenback.await_`.
 
     This works like calling :func:`ensure_portal` from within *task*,
@@ -462,7 +461,7 @@ async def ensure_portal() -> None:
 
 
 def has_portal(
-    task: Optional[Union["trio.lowlevel.Task", "asyncio.Task[Any]"]] = None
+    task: trio.lowlevel.Task | asyncio.Task[Any] | None = None
 ) -> bool:
     """Return true if the given *task* is currently able to use
     :func:`greenback.await_`, false otherwise. If no *task* is
@@ -574,10 +573,10 @@ class AutoPortalInstrument(Instrument):
         #         await with_portal_run_tree(something)
         # we only want to portalize the tasks under `something`, not children
         # spawned into `outer`.
-        self.tasks: Dict["trio.lowlevel.Task", int] = {}
+        self.tasks: dict[trio.lowlevel.Task, int] = {}
         self.refs = 0
 
-    def task_spawned(self, task: "trio.lowlevel.Task") -> None:
+    def task_spawned(self, task: trio.lowlevel.Task) -> None:
         if task.parent_nursery is None:  # pragma: no cover
             # We shouldn't see the init task (since this instrument is
             # added only after run() starts up) but don't crash if we do.
@@ -590,15 +589,14 @@ class AutoPortalInstrument(Instrument):
             bestow_portal(task)
             self.tasks[task] = 0
 
-    def task_exited(self, task: "trio.lowlevel.Task") -> None:
+    def task_exited(self, task: trio.lowlevel.Task) -> None:
         self.tasks.pop(task, None)
 
 
 # We can't initialize this at global scope because we don't want to import Trio
 # if we're being used in an asyncio program. It will be initialized on the first
 # call to with_portal_run_tree().
-instrument_holder: "Optional[trio.lowlevel.RunVar[Optional[AutoPortalInstrument]]]"
-instrument_holder = None
+instrument_holder: trio.lowlevel.RunVar[AutoPortalInstrument | None] | None = None
 
 
 async def with_portal_run_tree(

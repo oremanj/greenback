@@ -460,9 +460,7 @@ async def ensure_portal() -> None:
     await sys.modules[library].sleep(0)
 
 
-def has_portal(
-    task: trio.lowlevel.Task | asyncio.Task[Any] | None = None
-) -> bool:
+def has_portal(task: trio.lowlevel.Task | asyncio.Task[Any] | None = None) -> bool:
     """Return true if the given *task* is currently able to use
     :func:`greenback.await_`, false otherwise. If no *task* is
     specified, query the currently executing task.

@@ -5,6 +5,17 @@ Release history
 
 .. towncrier release notes start
 
+greenback 1.2.1 (2024-02-20)
+----------------------------
+
+Bugfixes
+~~~~~~~~
+
+- greenback now uses deferred evaluation for its type hints. This resolves an
+  incompatibility with less-than-bleeding-edge versions of `outcome` that was
+  inadvertently introduced in the 1.2.0 release. (`#30 <https://github.com/oremanj/greenback/issues/30>`__)
+
+
 greenback 1.2.0 (2024-02-07)
 ----------------------------
 

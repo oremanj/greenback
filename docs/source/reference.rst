@@ -33,11 +33,11 @@ a greenback *portal* for that task to use. You may choose between:
   simpler and will be a bit faster (probably only noticeable if the
   function you're running is very short).
 
-* :func:`with_portal_run_tree`: Run an async function (in the current
-  task) that can make calls to :func:`await_` both itself and in all
-  of its child tasks, recursively.  Available on Trio only, since
-  asyncio lacks a clear task tree and also lacks the instrumentation
-  features required to implement this. Use case: minimally invasive
+* On Trio, the functions in the :ref:`next section <tree-portals>` allow
+  you to automatically propagate the greenback portal to child tasks of
+  a certain function or scope. (These don't work on asyncio, since asyncio
+  lacks a clear task tree and also lacks the instrumentation features
+  required to implement them.) Use case: minimally invasive
   code change to allow :func:`greenback.await_` in an entire subsystem
   of your Trio program.
 
@@ -48,8 +48,36 @@ been set up.
 .. autofunction:: bestow_portal(task)
 .. autofunction:: with_portal_run(async_fn, *args, **kwds)
 .. autofunction:: with_portal_run_sync(sync_fn, *args, **kwds)
-.. autofunction:: with_portal_run_tree(async_fn, *args, **kwds)
 .. autofunction:: has_portal(task=None)
+
+
+.. _tree-portals:
+
+Propagating portals to a task's children
+----------------------------------------
+
+The functions in this section create *inheritable* greenback portals, impacting
+both a task and its children. ("Children" refers to child tasks of nurseries
+are contained entirely within the portal's scope, since it is only those tasks
+that are guaranteed not to outlive the portal.)
+
+The automatic "portalization" of child tasks is implemented using a
+Trio `instrument <trio.abc.Instrument>` (the
+:class:`AutoPortalInstrument`), which has a small performance impact
+on task spawning for the entire Trio run. To minimize this impact, a
+single instrument is used even if you have multiple inheriting-portal
+contexts active simultaneously, and the instrument will be removed as
+soon as all of them have completed.
+
+.. autofunction:: with_portal_run_tree(async_fn, *args, **kwds)
+
+.. autofunction:: portals_for_tree()
+   :async-with:
+
+.. autofunction:: portals_for_children()
+   :with:
+
+.. autoclass:: AutoPortalInstrument
 
 
 Using the portal

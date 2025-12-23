@@ -5,6 +5,17 @@ Release history
 
 .. towncrier release notes start
 
+greenback 1.3.0 (2025-12-22)
+----------------------------
+
+Features
+~~~~~~~~
+
+- Added :func:`portals_for_children`, :func:`portals_for_tree`, and
+  :class:`AutoPortalInstrument`, offering better support for portalizing
+  portions of the Trio task tree. These generalize the facility that was
+  previously available through :func:`with_portal_run_tree`.
+
 greenback 1.2.1 (2024-02-20)
 ----------------------------
 

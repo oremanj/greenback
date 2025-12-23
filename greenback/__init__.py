@@ -9,6 +9,9 @@ from ._impl import (
     with_portal_run as with_portal_run,
     with_portal_run_sync as with_portal_run_sync,
     with_portal_run_tree as with_portal_run_tree,
+    portals_for_tree as portals_for_tree,
+    portals_for_children as portals_for_children,
+    AutoPortalInstrument as AutoPortalInstrument,
     await_ as await_,
 )
 from ._util import (

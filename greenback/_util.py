@@ -47,7 +47,7 @@ def decorate_as_sync(decorator: Callable[[F], F]) -> Callable[[AF], AF]: ...
 # for decorators that are args-preserving but not return-type-preserving.)
 @overload
 def decorate_as_sync(
-    decorator: Callable[..., Any]
+    decorator: Callable[..., Any],
 ) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]: ...
 
 
@@ -123,7 +123,7 @@ class async_context(Generic[T]):
                     f"{type(self._cm).__name__!r} object does not support the "
                     "asynchronous context manager protocol (missed __aexit__ method)"
                 ) from None
-            return await_(aenter(self._cm))  # type: ignore
+            return await_(aenter(self._cm))
 
     else:
 
@@ -135,10 +135,10 @@ class async_context(Generic[T]):
                     f"type object {type(self._cm).__name__!r} has no attribute '__aexit__'"
                 ) from None
             aenter = type(self._cm).__aenter__
-            return await_(aenter(self._cm))  # type: ignore
+            return await_(aenter(self._cm))
 
     def __exit__(self, *exc: Any) -> bool | None:
-        return await_(self._aexit(self._cm, *exc))  # type: ignore
+        return await_(self._aexit(self._cm, *exc))
 
 
 class async_iter(Generic[T]):
@@ -156,7 +156,7 @@ class async_iter(Generic[T]):
                 "'async_iter' requires an object with __aiter__ method, got "
                 + type(iterable).__name__
             ) from None
-        self._it = aiter(iterable)  # type: ignore
+        self._it = aiter(iterable)
         try:
             type(self._it).__anext__
         except AttributeError:
@@ -172,7 +172,7 @@ class async_iter(Generic[T]):
 
     def __next__(self) -> T:
         try:
-            return await_(type(self._it).__anext__(self._it))  # type: ignore
+            return await_(type(self._it).__anext__(self._it))
         except StopAsyncIteration as ex:
             raise StopIteration(*ex.args)
 

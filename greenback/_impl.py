@@ -7,13 +7,16 @@ import sniffio
 import sys
 import types
 import weakref
+from contextlib import contextmanager, asynccontextmanager
 from functools import partial
 from typing import (
     Any,
+    AsyncIterator,
     Awaitable,
     Callable,
     Coroutine,
     Generator,
+    Iterator,
     MutableMapping,
     TypeVar,
     TYPE_CHECKING,
@@ -118,6 +121,10 @@ async def greenback_shim(task: object, orig_coro: Coroutine[Any, Any, Any]) -> A
         del task_portals[task]
 
 
+class PortalExit(BaseException):
+    pass
+
+
 @types.coroutine
 def _greenback_shim(
     orig_coro: Coroutine[Any, Any, Any], next_send: outcome.Outcome[Any]
@@ -208,6 +215,10 @@ def _greenback_shim(
         try:
             # Normally we send to orig_coro whatever the event loop sent us
             next_send = outcome.Value((yield next_yield))
+        except PortalExit:
+            # portals_for_tree() wants to detach this portal from a task that
+            # will continue on
+            raise
         except BaseException as ex:
             # If the event loop resumed us with an error, we forward that error
             next_send = outcome.Error(ex)
@@ -377,7 +388,7 @@ def set_aio_task_coro(
     assert coro_field.value == id(old_coro)
     _ctypes.Py_INCREF(new_coro)  # type: ignore
     coro_field.value = id(new_coro)
-    _ctypes.Py_DECREF(old_coro)  # type: ignore
+    _ctypes.Py_DECREF(old_coro)
 
 
 def bestow_portal(task: trio.lowlevel.Task | asyncio.Task[Any]) -> None:
@@ -408,7 +419,9 @@ def bestow_portal(task: trio.lowlevel.Task | asyncio.Task[Any]) -> None:
         import asyncio
 
         assert isinstance(task, asyncio.Task)
-        shim_coro = greenback_shim(task, task.get_coro())
+        orig_coro = task.get_coro()
+        assert orig_coro is not None
+        shim_coro = greenback_shim(task, orig_coro)
         commit = partial(set_aio_task_coro, task, shim_coro)
 
     # Step it once so it's ready to get resumed by the event loop
@@ -563,7 +576,30 @@ else:
     Instrument = object
 
 
+# We can't initialize this at global scope because we don't want to import Trio
+# if we're being used in an asyncio program. It will be initialized on the first
+# call to with_portal_run_tree(), or in AutoPortalInstrument.before_run().
+instrument_holder: trio.lowlevel.RunVar[AutoPortalInstrument | None] | None = None
+
+
+def get_instrument_holder() -> trio.lowlevel.RunVar[AutoPortalInstrument | None]:
+    global instrument_holder
+    import trio.lowlevel
+
+    if instrument_holder is None:
+        instrument_holder = trio.lowlevel.RunVar("greenback_instrument", default=None)
+    return instrument_holder
+
+
 class AutoPortalInstrument(Instrument):
+    """A Trio `~trio.abc.Instrument` that automatically gives newly
+    spawned tasks a greenback portal where appropriate. This is used
+    in the implementations of :func:`with_portal_run_tree` and
+    :func:`portals_for_tree`. You can also pass an instance of this class
+    directly as an instrument to :func:`trio.run` if you want to give every
+    task in the run (including system tasks) a portal.
+    """
+
     def __init__(self) -> None:
         # {task: nursery depth at which we'll auto-portalize new children}
         # Rationale for tracking the depth: in
@@ -574,10 +610,20 @@ class AutoPortalInstrument(Instrument):
         self.tasks: dict[trio.lowlevel.Task, int] = {}
         self.refs = 0
 
+    def before_run(self) -> None:
+        # This runs only if the instrument is passed to trio.run(), rather
+        # than being added later.
+        self.refs = 1
+        get_instrument_holder().set(self)
+
     def task_spawned(self, task: trio.lowlevel.Task) -> None:
-        if task.parent_nursery is None:  # pragma: no cover
-            # We shouldn't see the init task (since this instrument is
-            # added only after run() starts up) but don't crash if we do.
+        if task.parent_nursery is None:
+            # This is the init task. We will only see it if this instrument is
+            # provided in the initial call to trio.run(). In that case we want
+            # to auto-portalize everything, so go ahead and give the init task
+            # a portal. All other tasks will inherit it.
+            bestow_portal(task)
+            self.tasks[task] = 0
             return
         parent = task.parent_nursery.parent_task
         depth = self.tasks.get(parent)
@@ -591,36 +637,18 @@ class AutoPortalInstrument(Instrument):
         self.tasks.pop(task, None)
 
 
-# We can't initialize this at global scope because we don't want to import Trio
-# if we're being used in an asyncio program. It will be initialized on the first
-# call to with_portal_run_tree().
-instrument_holder: trio.lowlevel.RunVar[AutoPortalInstrument | None] | None = None
+@contextmanager
+def portals_for_children() -> Iterator[None]:
+    """Return a synchronous context manager that enables
+    :func:`greenback.await_` for all child tasks of nurseries created
+    within its scope. The task in which you enter the context manager
+    does *not* receive a portal, which is what allows the context manager
+    to be synchronous.
 
-
-async def with_portal_run_tree(
-    async_fn: Callable[..., Awaitable[T]], *args: Any, **kwds: Any
-) -> T:
-    """Execute ``await async_fn(*args, **kwds)`` in a context that allows use
-    of :func:`greenback.await_` both in *async_fn* itself and in any tasks
-    that are spawned into child nurseries of *async_fn*, recursively.
-
-    You can use this to create an entire Trio run (except system
-    tasks) that runs with :func:`greenback.await_` available: say
-    ``trio.run(with_portal_run_tree, main)``.
-
-    This function does *not* add any cancellation point or schedule point
-    beyond those that already exist inside *async_fn*.
+    This is a building block for :func:`portals_for_children` and
+    :func:`with_portal_run_tree`. You probably want to use one of those instead.
 
     Availability: Trio only.
-
-    .. note:: The automatic "portalization" of child tasks is
-       implemented using a Trio `instrument <trio.abc.Instrument>`,
-       which has a small performance impact on task spawning for the
-       entire Trio run. To minimize this impact, a single instrument
-       is used even if you have multiple :func:`with_portal_run_tree`
-       calls running simultaneously, and the instrument will be
-       removed as soon as all such calls have completed.
-
     """
     try:
         import trio
@@ -635,39 +663,100 @@ async def with_portal_run_tree(
     except Exception:
         raise RuntimeError("This function is only supported when running under Trio")
 
-    global instrument_holder
-    if instrument_holder is None:
-        instrument_holder = trio_lowlevel.RunVar("greenback_instrument", default=None)
-    instrument = instrument_holder.get()
+    holder = get_instrument_holder()
+    instrument = holder.get()
     if instrument is None:
-        # We're the only with_portal_run_tree() in this Trio run at the moment -->
+        # We're the only portals_for_children() in this Trio run at the moment -->
         # set up the instrument and store it in the RunVar for other calls to find
         instrument = AutoPortalInstrument()
         trio_lowlevel.add_instrument(instrument)
-        instrument_holder.set(instrument)
+        holder.set(instrument)
     elif this_task in instrument.tasks:
-        # We're already inside another call to with_portal_run_tree(), so nothing
+        # We're already inside another call to portals_for_children(), so nothing
         # more needs to be done
-        assert this_task in task_portals
-        return await async_fn(*args, **kwds)
+        yield
+        return
 
     # Store our current nursery depth. This allows the instrument to
-    # distinguish new tasks spawned in child nurseries of async_fn()
+    # distinguish new tasks spawned in child nurseries of this context
     # (which should get auto-portalized) from new tasks spawned in
     # nurseries that enclose this call (which shouldn't, even if they
     # have the same parent task).
     instrument.tasks[this_task] = len(this_task.child_nurseries)
     instrument.refs += 1
     try:
-        return await with_portal_run(async_fn, *args, **kwds)
+        yield
     finally:
         del instrument.tasks[this_task]
         instrument.refs -= 1
         if instrument.refs == 0:
-            # There are no more with_portal_run_tree() calls executing
+            # There are no more portals_for_children() contexts executing
             # in this run, so clean up the instrument.
-            instrument_holder.set(None)
+            holder.set(None)
             trio_lowlevel.remove_instrument(instrument)
+
+
+@asynccontextmanager
+async def portals_for_tree() -> AsyncIterator[None]:
+    """Return an asynchronous context manager that enables
+    :func:`greenback.await_` within its scope, for both the task in which
+    the context manager was entered and any child tasks of nurseries
+    created while the context manager is active.
+
+    Both the entry and the exit of the context manager are schedule points
+    (other tasks can run), but neither is a cancellation point (this task
+    cannot be cancelled at them). If you don't even want a schedule point,
+    then use :func:`with_portal_run_tree` instead.
+
+    Availability: Trio only.
+    """
+    import trio.lowlevel
+
+    with portals_for_children():
+        this_task = trio.lowlevel.current_task()
+        portal_is_new = this_task not in task_portals
+        if portal_is_new:
+            orig_coro = this_task.coro
+            bestow_portal(this_task)
+            shim_coro = this_task.coro
+            assert orig_coro is not shim_coro
+        try:
+            await trio.lowlevel.cancel_shielded_checkpoint()
+            yield
+        finally:
+            if portal_is_new and this_task.coro is shim_coro:
+                this_task.coro = orig_coro
+                await trio.lowlevel.cancel_shielded_checkpoint()
+                try:
+                    shim_coro.throw(PortalExit())
+                except PortalExit:
+                    pass
+                else:
+                    raise RuntimeError("shim didn't detach when we threw in PortalExit")
+            else:
+                await trio.lowlevel.cancel_shielded_checkpoint()
+
+
+async def with_portal_run_tree(
+    async_fn: Callable[..., Awaitable[T]], *args: Any, **kwds: Any
+) -> T:
+    """Execute ``await async_fn(*args, **kwds)`` in a context that allows use
+    of :func:`greenback.await_` both in *async_fn* itself and in any tasks
+    that are spawned into child nurseries of *async_fn*, recursively.
+
+    You can use this to create an entire Trio run (except system
+    tasks) that runs with :func:`greenback.await_` available: say
+    ``trio.run(with_portal_run_tree, main)``. (If you want to wrap the
+    system tasks too, pass an :class:`AutoPortalInstrument` to :func:`trio.run`
+    instead.)
+
+    This function does *not* add any cancellation point or schedule point
+    beyond those that already exist inside *async_fn*.
+
+    Availability: Trio only.
+    """
+    with portals_for_children():
+        return await with_portal_run(async_fn, *args, **kwds)
 
 
 async def adapt_awaitable(aw: Awaitable[T]) -> T:

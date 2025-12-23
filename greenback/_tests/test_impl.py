@@ -92,7 +92,17 @@ async def test_with_portal_run(library):
             await_(anyio.sleep(0))
 
 
-async def test_with_portal_run_tree():
+@pytest.mark.parametrize("use_context", [False, True])
+async def test_with_portal_run_tree(use_context):
+    if use_context:
+
+        async def with_portal_run_tree(async_fn, *args, **kwds):
+            async with greenback.portals_for_tree():
+                return await async_fn(*args, **kwds)
+
+    else:
+        with_portal_run_tree = greenback.with_portal_run_tree
+
     async def expect_no_portal():
         await trio.sleep(0.5)
         assert not has_portal()
@@ -108,9 +118,9 @@ async def test_with_portal_run_tree():
             return
         async with trio.open_nursery() as nursery:
             nursery.start_soon(expect_portal)
-            nursery.start_soon(greenback.with_portal_run_tree, example_child, depth - 1)
+            nursery.start_soon(with_portal_run_tree, example_child, depth - 1)
             nursery.start_soon(example_child, depth - 1)
-            await_(greenback.with_portal_run_tree(example_child, depth - 1))
+            await_(with_portal_run_tree(example_child, depth - 1))
             await trio.sleep(1)
 
     async with trio.open_nursery() as outer:
@@ -125,13 +135,13 @@ async def test_with_portal_run_tree():
             assert not has_portal()
             outer.start_soon(expect_no_portal)
             middle.start_soon(expect_no_portal)
-            await greenback.with_portal_run_tree(example_child, 3)
+            await with_portal_run_tree(example_child, 3)
             assert not has_portal()
             outer.start_soon(expect_no_portal)
             middle.start_soon(expect_no_portal)
-            middle.start_soon(greenback.with_portal_run_tree, example_child, 3)
+            middle.start_soon(with_portal_run_tree, example_child, 3)
             await trio.sleep(0.5)
-            middle.start_soon(greenback.with_portal_run_tree, example_child, 3)
+            middle.start_soon(with_portal_run_tree, example_child, 3)
             await trio.sleep(0.5)
             assert not has_portal()
 
@@ -328,7 +338,7 @@ async def test_exit_task_with_error():
         await ensure_portal()
         await async_yield(42)
 
-    with pytest.raises(TypeError):
+    with trio.testing.RaisesGroup(TypeError, allow_unwrapped=True):
         async with trio.open_nursery() as nursery:
             nursery.start_soon(failing_task)
 

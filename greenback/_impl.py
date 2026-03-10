@@ -391,6 +391,34 @@ def set_aio_task_coro(
     _ctypes.Py_DECREF(old_coro)
 
 
+def _make_shim_for(
+    orig_coro: Coroutine[Any, Any, Any],
+) -> Callable[..., Coroutine[Any, Any, Any]]:
+    """Return a copy of greenback_shim whose code object metadata (filename,
+    line number, qualified name) matches *orig_coro*, so that
+    asyncio debug repr and slow-callback warnings identify the original
+    coroutine rather than the greenback shim.
+    """
+    orig_code = getattr(orig_coro, "cr_code", None)
+    if orig_code is None:
+        return greenback_shim
+    replace_kwargs: dict[str, Any] = {
+        "co_filename": orig_code.co_filename,
+        "co_firstlineno": orig_code.co_firstlineno,
+        "co_name": orig_code.co_name,
+    }
+    if hasattr(orig_code, "co_qualname"):  # Python 3.11+
+        replace_kwargs["co_qualname"] = orig_code.co_qualname
+    new_code = greenback_shim.__code__.replace(**replace_kwargs)
+    shim_fn = types.FunctionType(
+        new_code,
+        greenback_shim.__globals__,
+        name=orig_code.co_name,
+    )
+    shim_fn.__qualname__ = getattr(orig_code, "co_qualname", orig_code.co_name)
+    return shim_fn
+
+
 def bestow_portal(task: trio.lowlevel.Task | asyncio.Task[Any]) -> None:
     """Ensure that the given async *task* is able to use :func:`greenback.await_`.
 
@@ -413,7 +441,8 @@ def bestow_portal(task: trio.lowlevel.Task | asyncio.Task[Any]) -> None:
                 from trio.hazmat import Task
 
         assert isinstance(task, Task)
-        shim_coro = greenback_shim(task, task.coro)
+        shim_fn = _make_shim_for(task.coro)
+        shim_coro = shim_fn(task, task.coro)
         commit: Callable[[], None] = partial(setattr, task, "coro", shim_coro)
     else:
         import asyncio
@@ -421,7 +450,8 @@ def bestow_portal(task: trio.lowlevel.Task | asyncio.Task[Any]) -> None:
         assert isinstance(task, asyncio.Task)
         orig_coro = task.get_coro()
         assert orig_coro is not None
-        shim_coro = greenback_shim(task, orig_coro)
+        shim_fn = _make_shim_for(orig_coro)
+        shim_coro = shim_fn(task, orig_coro)
         commit = partial(set_aio_task_coro, task, shim_coro)
 
     # Step it once so it's ready to get resumed by the event loop
